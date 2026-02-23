@@ -1,12 +1,11 @@
 import os
 from dotenv import load_dotenv
-
-# Load env variables
-load_dotenv(verbose=True)
-
 from strands import Agent, tool
 from strands.models.bedrock import BedrockModel
 from strands_tools import calculator, current_time
+
+# Load env variables
+load_dotenv(verbose=True)
 
 # Define a custom tool as a Python function using the @tool decorator
 @tool
