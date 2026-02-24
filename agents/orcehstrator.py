@@ -1,34 +1,23 @@
 import os
-from typing import Optional, Dict, Any
-
 from dotenv import load_dotenv
-from strands import Agent, tool
+from strands import Agent
 from strands.models import BedrockModel
+from tools.session import SessionContext
+from tools.orchestrator_tools import create_orchestrator_tools
 
-from agents.quiz import create_quiz_agent
-from agents.tutor import create_tutor_agent
-from tools.state import load_progress, update_topic_progress, get_next_topic, save_progress
-
-# Load env variables
+# Load environment variables
 load_dotenv(verbose=True)
-
-# Available topics
-ALL_TOPICS = [
-    "API Design & Microservices",
-    "Scalability & Distributed Systems",
-    "Database Design & Data Modeling",
-    "Cloud-Native & AWS Architecture",
-]
 
 ORCHESTRATOR_PROMPT = """
 You are the System Design Interview Coach orchestrator. You manage the learning session.
 
 Your workflow:
-1. Greet the user and ask what topic they want to study
-2. When they choose a topic, use the tutor_agent tool to teach it
+1. Greet the user and check their progress (use get_user_progress tool)
+2. When they choose a topic, use tutor_agent to teach it
 3. After teaching, ask if they want to be quizzed
-4. When ready to quiz, use the quiz_agent tool to generate questions and evaluate answers
-5. Provide session summaries and suggest next topics
+4. Use quiz_agent to generate questions and evaluate answers
+5. After quiz, call update_progress with the topic and score
+6. Provide session summaries and suggest next uncovered topics
 
 Available topics:
 - API Design & Microservices
@@ -39,128 +28,71 @@ Available topics:
 Be conversational (but not chatty), encouraging, and guide them through the session naturally.
 When the user says things like "teach me" or "explain", use tutor_agent.
 When they say "quiz me" or "test me", use quiz_agent.
+After each quiz, use update_progress to save their score.
 """
 
-# Global variables
-_current_user_id: Optional[str] = None
-_session_progress: Optional[Dict[str, Any]] = None
 
-def set_session_user(user_id: str):
-    """Set the current user for the session and load their progress"""
-    global _current_user_id, _session_progress
-    _current_user_id = user_id
-    _session_progress = load_progress(user_id)
-    print(f"Session started for user: {user_id}")
-    print(f"Progress loaded: {_session_progress}")
-
-@tool
-def tutor_agent(query: str) -> str:
+class OrchestratorSession:
     """
-    Expert tutor that teaches system design concepts with examples, trade-offs, and AWS-specific implementations.
-
-    :param query: The topic or question to teach about
-    :return: Detailed explanation with examples
+    Session-scoped orchestrator bound to a specific user.
+    Manages the conversation flow and coordinates between specialist agents.
     """
-    print("==> Routed to Tutor Agent")
-    tutor = create_tutor_agent()
-    response = tutor(query)
-    return response
 
-# Set up agents as tool
-@tool
-def quiz_agent(query: str) -> str:
+    def __init__(self, user_id: str):
+        """
+        Initialize orchestrator session for a specific user.
+
+        :param user_id: Unique identifier for the user
+        """
+        self.session = SessionContext.create(user_id)
+        self.agent = self._create_agent()
+
+    def _create_agent(self) -> Agent:
+        """
+        Create the orchestrator agent with session-aware tools.
+
+        :return: Configured Agent instance
+        """
+        # Create tools bound to this session
+        tools = create_orchestrator_tools(self.session)
+
+        # Initialize Bedrock model
+        model = BedrockModel(
+            model_id=os.getenv("BEDROCK_MODEL_ID"),
+            region_name=os.getenv("AWS_REGION")
+        )
+
+        # Return agent with orchestration logic
+        return Agent(
+            model=model,
+            system_prompt=ORCHESTRATOR_PROMPT,
+            tools=tools,
+        )
+
+    def execute(self, user_input: str) -> str:
+        """
+        Execute one conversation turn with the user.
+
+        :param user_input: User's message
+        :return: Orchestrator's response
+        """
+        response = self.agent(user_input)
+        return str(response)
+
+    def save(self) -> bool:
+        """
+        Save session progress to DynamoDB.
+
+        :return: True if save was successful
+        """
+        return self.session.save()
+
+
+def create_orchestrator(user_id: str) -> OrchestratorSession:
     """
-    Quiz master that generates system design interview questions and evaluates answers with constructive feedback.
+    Factory function to create a session-scoped orchestrator.
 
-    :param query: Request to generate questions or evaluate an answer
-    :return: Question or evaluation with score and feedback
+    :param user_id: Unique identifier for the user
+    :return: OrchestratorSession instance
     """
-    print("==> Routed to Quiz Agent")
-    quiz = create_quiz_agent()
-    response = quiz(query)
-    return response
-
-@tool
-def update_progress(topic: str, quiz_score: Optional[float] = None) -> str:
-    """
-    Update the user's progress after completing a topic or a quiz.
-
-    :param topic: The topic that was covered (e.g. "API Design & Microservices")
-    :param quiz_score: Optional quiz score (0-100) if they took a quiz
-    :return: Confirmation message
-    """
-    global _current_user_id, _session_progress
-
-    if not _current_user_id:
-        return "Error: No active user session"
-
-    success = update_topic_progress(_current_user_id, topic, quiz_score)
-
-    if success:
-        _session_progress = load_progress(_current_user_id)
-
-        score_message = f"with score {quiz_score}" if quiz_score is not None else ""
-        return f"Progress updated for topic '{topic}' {score_message}"
-    else:
-        return f"Failed to update progress for topic '{topic}'"
-
-@tool
-def get_user_progress() -> str:
-    """
-    Get the current user's learning progress.
-
-    :return: Summary of topics covered and quiz scores
-    """
-    global _session_progress
-
-    if not _session_progress:
-        return "No progress data available"
-
-    topics = _session_progress.get('topics_covered', [])
-    scores = _session_progress.get('quiz_scores', {})
-    current = _session_progress.get('current_topic', 'None')
-
-    summary = f"Topics covered: {len(topics)}/{len(ALL_TOPICS)}"
-
-    if topics:
-        summary += "\nCompleted topics:\n"
-        for topic in topics:
-            score = scores.get(topic, "Not quizzed")
-            summary += f"\t-{topic}: {score}\n"
-
-    summary += f"\nCurrent topic: {current}\n"
-
-    next_topic = get_next_topic(_session_progress['user_id'], ALL_TOPICS)
-    if next_topic:
-        summary += f"\nSuggested next topic: {next_topic}"
-    else:
-        summary += f"\nAll topics completed! Consider revewing or going deeper"
-
-    return summary
-
-def save_session():
-    global _current_user_id, _session_progress
-
-    if _current_user_id and _session_progress:
-        success = save_progress(_current_user_id, _session_progress)
-        if success:
-            print(f"\nSession saved for user: {_current_user_id}")
-        else:
-            print(f"\nFailed to save session for user: {_current_user_id}")
-
-def create_orchestrator(user_id: Optional[str] = None):
-    # Set session user if provided
-    if user_id:
-        set_session_user(user_id)
-
-    model = BedrockModel(
-        model_id=os.getenv("BEDROCK_MODEL_ID"),
-        region_name=os.getenv("AWS_REGION")
-    )
-
-    # Create orchestrator
-    return Agent(
-        model=model,
-        system_prompt=ORCHESTRATOR_PROMPT,
-        tools=[tutor_agent, quiz_agent, update_progress, get_user_progress],
-    )
+    return OrchestratorSession(user_id)
