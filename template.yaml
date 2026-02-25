@@ -43,6 +43,7 @@ Resources:
       FunctionName: !Sub system-design-coach-${Environment}
       CodeUri: .
       Handler: handler.lambda_handler
+      Tracing: Active
       Environment:
         Variables:
           DYNAMODB_TABLE_NAME: !Ref ProgressTable

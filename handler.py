@@ -1,7 +1,13 @@
+import os
 import json
 from typing import Dict, Any
+from strands.telemetry import StrandsTelemetry
 from agents.orcehstrator import create_orchestrator
 
+os.environ['OTEL_SERVICE_NAME'] = 'system-design-coach'
+
+telemetry = StrandsTelemetry()
+telemetry.setup_console_exporter()
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
