@@ -4,18 +4,25 @@ from typing import Any, Optional, Dict
 
 import boto3
 
-dynamodb = boto3.resource(
-    "dynamodb",
-    region_name=os.getenv("AWS_REGION"),
-    aws_access_key_id=os.getenv("AWS_ACCESS_KEY"),
-    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-)
+_dynamodb = None
 
-TABLE_NAME = "SystemDesignProgress"
+def get_dynamodb():
+    """Lazy initialization of DynamoDB resource"""
+    global _dynamodb
+    if _dynamodb is None:
+        kwargs = {"region_name": os.getenv("AWS_REGION", "us-east-1")}
+
+        if os.getenv("AWS_ACCESS_KEY"):
+            kwargs["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY")
+            kwargs["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+        _dynamodb = boto3.resource("dynamodb", **kwargs)
+    return _dynamodb
 
 def get_table():
     """Get DynamoDB table reference"""
-    return dynamodb.Table(TABLE_NAME)
+    table_name = os.getenv("DYNAMODB_TABLE_NAME", "SystemDesignProgress")
+    return get_dynamodb().Table(table_name)
 
 def load_progress(user_id: str) -> Optional[Dict[str, Any]]:
     """
