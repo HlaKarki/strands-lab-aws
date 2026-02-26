@@ -1,14 +1,24 @@
+# Strands Lab
 
+Personal sandbox for exploring Strands Agents and AWS services.
 
+## Current Focus
 
-## Agents Available
+Building a CLI tool to experiment with:
+- Strands Agent patterns
+- AWS service integrations
+- Multi-agent orchestration
 
-- [ ] Tutor
-- [ ] Quiz
-- [ ] Orchestrator
-- [ ] Export Conversation to .md
-- [ ] Data analysis
+## Setup
 
-## AWS Infra Used
+```bash
+python -m venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+```
 
-- [x] DynamoDB
+## Run
+
+```bash
+python cli.py
+```

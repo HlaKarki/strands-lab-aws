@@ -61,3 +61,6 @@ samconfig.toml
 # Temporary files
 *.tmp
 *.bak
+
+# AIs
+.claude
