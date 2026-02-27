@@ -22,3 +22,18 @@ uv pip install -r requirements.txt
 ```bash
 python cli.py
 ```
+
+# Blog
+
+### Football Agent
+> Feb 26
+> 
+> This will be conversational and context-aware <br/>
+> e.g. "Do Man Utd play today?" -> "Yes, they play..." <br/>
+> "What's their form going into this game?" -> "They've won 4 out...."
+
+
+Match predictions
+Player comparison
+Form analysis
+Head-to-head history

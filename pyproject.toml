@@ -1,0 +1,11 @@
+[project]
+name = "strands-lab-aws"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx",
+    "strands-agents",
+    "python-dotenv",
+    "strands-agents-tools",
+    "strands-agents-builder"
+]
