@@ -24,7 +24,7 @@ def main():
             if not user_input:
                 continue
 
-            if user_input == "/exit":
+            if user_input in ["/exit", "/quit", "/q", ":wq", ":q"]:
                 # save conversation/progress
                 break
 
