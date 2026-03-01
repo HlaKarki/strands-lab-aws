@@ -1,10 +1,11 @@
 import asyncio
 
-from agents.football import get_league_table
-
+from services.fotmob import FotmobClient
 
 async def main():
-    result = await get_league_table("Premier League")
+    fb_client = FotmobClient()
+    # result = await fb_client.get_league_table("Premier League")
+    result = await fb_client.get_league_statistics("Premier League")
     print(result)
 
 if __name__ == "__main__":
