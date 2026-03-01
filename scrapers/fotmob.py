@@ -38,7 +38,7 @@ def extract_key_data(match_data: Dict[str, Any]) -> Dict[str, Any]:
     :return: Cleaned data with only needed fields
     """
     paths = [
-        "content.matchFacts.playerOfTheMatch", "content.matchFacts.infoBox",
+        "header", "content.matchFacts.playerOfTheMatch", "content.matchFacts.infoBox",
         "content.matchFacts.postReview", "content.matchFacts.preReview",
         "content.matchFacts.topPlayer", "content.stats.Periods.All.stats",
     ]
