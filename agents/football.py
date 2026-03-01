@@ -10,7 +10,7 @@ from strands import Agent, tool
 from strands.models import BedrockModel
 
 from scrapers.fotmob import get_match_details_from_browser
-from utils import fotmob_headers
+from utils import fotmob_headers, GENERAL_SYSTEM_PROMPT
 
 load_dotenv()
 
@@ -111,7 +111,10 @@ def get_football_agent():
             Today's date: {datetime.now().strftime('%A, %B %d, %Y')} (YYYYMMDD: {datetime.now().strftime('%Y%m%d')})
 
             When users ask about fixtures pertaining to specific dates, calculate the YYYYMMDD format yourself and pass it to 
-            the tool."""
+            the tool.
+            
+            {GENERAL_SYSTEM_PROMPT}
+            """
     )
 
 async def main():
