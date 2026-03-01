@@ -1,14 +1,12 @@
 import os
+import httpx
 import logging
 import asyncio
 from datetime import datetime
 from typing import List, Dict
-
-import httpx
 from dotenv import load_dotenv
 from strands import Agent, tool
 from strands.models import BedrockModel
-
 from scrapers.fotmob import get_match_details_from_browser
 from utils import fotmob_headers, GENERAL_SYSTEM_PROMPT
 

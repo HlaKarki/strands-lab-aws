@@ -1771,6 +1771,7 @@ source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "playwright" },
+    { name = "prompt-toolkit" },
     { name = "python-dotenv" },
     { name = "strands-agents" },
     { name = "strands-agents-builder" },
@@ -1781,6 +1782,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx" },
     { name = "playwright" },
+    { name = "prompt-toolkit" },
     { name = "python-dotenv" },
     { name = "strands-agents" },
     { name = "strands-agents-builder" },

@@ -1,5 +1,9 @@
 import asyncio
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.styles import Style
+
 from agents.football import get_football_agent
 from utils import make_user_id
 
@@ -10,15 +14,36 @@ COMMANDS = {
     }
 }
 
+command_completer = WordCompleter(
+    list(COMMANDS.keys()),
+    ignore_case=True,
+    sentence=True,
+    meta_dict={cmd: COMMANDS[cmd]["description"] for cmd in COMMANDS}
+)
+
+style = Style.from_dict({
+    'completion-menu.completion': 'bg:#008888 #ffffff',
+    'completion-menu.completion.current': 'bg:#00aaaa #000000',
+    'scrollbar.background': 'bg:#88aaaa',
+    'scrollbar.button': 'bg:#222222',
+})
+
 async def main():
     user_id = make_user_id()
+    session = PromptSession(
+        completer=command_completer,
+        complete_while_typing=True,
+        style=style,
+    )
+
     print(f"\n Commands: {', '.join(COMMANDS.keys())}")
     print(f"Type '/exit' to quit\n")
     print(f"User ID: {user_id}")
 
     while True:
         try:
-            user_input = input("> ").strip()
+            user_input = await session.prompt_async("> ", completer=command_completer)
+            user_input = user_input.strip()
 
             if not user_input:
                 continue

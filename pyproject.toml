@@ -8,7 +8,8 @@ dependencies = [
     "python-dotenv",
     "strands-agents-tools",
     "strands-agents-builder",
-    "playwright"
+    "playwright",
+    "prompt-toolkit"
 ]
 
 [project.scripts]
