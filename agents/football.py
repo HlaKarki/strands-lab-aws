@@ -99,10 +99,61 @@ async def get_match_details(match_id: int) -> Dict:
     # logger.info(f"Fetching match details for match_id: {match_id}")
     return await get_match_details_from_browser(match_id)
 
+@tool
+async def get_league_table(league_name: str):
+    f"""
+    Fetch the current league standings/table for a specific competition.
+
+    Returns comprehensive league table information including:
+    - Team rankings (position, points, games played)
+    - Form guide (recent results)
+    - Goals for/against and goal difference
+    - Win/draw/loss records
+    - Qualification status (Champions League, Europa League, relegation zones)
+
+    Use this tool when users want:
+    - Current league standings ("show me the Premier League table")
+    - Team positions ("where is Arsenal in the table?")
+    - Points and form ("how many points does Liverpool have?")
+    - Top of the table or relegation battles
+    - Goal difference and scoring stats
+
+    Available leagues: {list(AVAILABLE_LEAGUES_BY_ID.values())}
+
+    :param league_name: Name of the league (must exactly match one from available leagues list)
+    :return: Array of team objects with position, points, form, goals, and qualification info
+    """
+    league_id = AVAILABLE_LEAGUES[league_name]
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"https://www.fotmob.com/api/data/tltable?leagueId={league_id}",
+            headers=fotmob_headers
+        )
+        datas = response.json()
+        for data in datas:
+            table_all = (
+                data.get("data", {})
+                .get("table", {})
+                .get("all")
+            )
+            if table_all:
+                return table_all
+
+        return None
+
+@tool
+async def get_league_statistics(league_name: str):
+    """
+    Fetch league statistics using league ID
+    :param league_name:
+    :return:
+    """
+
 def get_football_agent():
     return Agent(
         model=BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION")),
-        tools=[fetch_matches_by_date, fetch_matches_by_multiple_dates, get_match_details],
+        tools=[fetch_matches_by_date, fetch_matches_by_multiple_dates, get_match_details, get_league_table],
         callback_handler=callback_handler,
         system_prompt=f"""You are a football assistant and enthusiast.
 

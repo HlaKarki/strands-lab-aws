@@ -61,6 +61,7 @@ samconfig.toml
 # Temporary files
 *.tmp
 *.bak
+*.writeup.md
 
 # AIs
 .claude

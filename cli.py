@@ -66,7 +66,6 @@ async def main():
                 print(f"Unknown command. Available commands: {', '.join(COMMANDS.keys())}")
                 continue
 
-            # get orchestrator instance?
             agent = COMMANDS[command]["agent"]
             if agent is None:
                 print(f"Unknown agent for command '{command}'")
