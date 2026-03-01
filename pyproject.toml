@@ -7,5 +7,16 @@ dependencies = [
     "strands-agents",
     "python-dotenv",
     "strands-agents-tools",
-    "strands-agents-builder"
+    "strands-agents-builder",
+    "playwright"
 ]
+
+[project.scripts]
+install-browsers = "playwright._impl._driver:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agents"]

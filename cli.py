@@ -1,17 +1,16 @@
-import random
+import asyncio
+
+from agents.football import get_football_agent
+from utils import make_user_id
 
 COMMANDS = {
-    "/learn": { "description": "System design interview prep coach" },
-    "/football": { "description": "Football enthusiast and analyst agent" }
+    "/football": {
+        "description": "Football enthusiast and analyst agent",
+        "agent": get_football_agent()
+    }
 }
 
-def make_user_id() -> str:
-    adjectives = ["blue", "fast", "silent", "brave"]
-    nouns = ["tiger", "eagle", "wolf", "panda"]
-
-    return f"{random.choice(adjectives)}-{random.choice(nouns)}-{random.randint(100, 999)}"
-
-def main():
+async def main():
     user_id = make_user_id()
     print(f"\n Commands: {', '.join(COMMANDS.keys())}")
     print(f"Type '/exit' to quit\n")
@@ -43,7 +42,12 @@ def main():
                 continue
 
             # get orchestrator instance?
-            print(f"Command: {command}")
+            agent = COMMANDS[command]["agent"]
+            if agent is None:
+                print(f"Unknown agent for command '{command}'")
+
+            result = await agent.invoke_async(message)
+            print(f"> {result.message['content'][0]['text']}")
 
         except KeyboardInterrupt:
             # save conversation/progress
@@ -51,4 +55,4 @@ def main():
             break
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -2,13 +2,15 @@ import os
 import logging
 import asyncio
 from datetime import datetime
-from typing import List
+from typing import List, Dict
 
 import httpx
 from dotenv import load_dotenv
 from strands import Agent, tool
 from strands.models import BedrockModel
-from strands_tools import shell
+
+from scrapers.fotmob import get_match_details_from_browser
+from utils import fotmob_headers
 
 load_dotenv()
 
@@ -48,15 +50,18 @@ async def fetch_matches_by_date(date: int):
     """
     base_url = "https://www.fotmob.com/api/data/matches"
     logger.info(f"Fetching matches for date: {date}")
+
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"{base_url}?date={date}&timezone=America/New_York&ccode3=USA")
+        response = await client.get(
+            f"{base_url}?date={date}&timezone=America/New_York&ccode3=USA",
+            headers=fotmob_headers
+        )
         data = response.json()
         relevant_leagues = [
             league for league in data["leagues"]
             if league["primaryId"] in AVAILABLE_LEAGUES_BY_ID
         ]
 
-        logger.info(f"Found {len(relevant_leagues)} relevant leagues:")
         return relevant_leagues
 
 @tool
@@ -71,29 +76,49 @@ async def fetch_matches_by_multiple_dates(dates: List[int]):
     logger.info(f"Fetching matches for the dates: {dates}")
     all_matches = []
     for date in dates:
-        logger.info(f"Fetching matches for date: {date}")
         result = await fetch_matches_by_date(date) # type: ignore
         if result:
             all_matches.extend(result)
 
     return all_matches
 
-async def main():
-    agent = Agent(
+@tool
+async def get_match_details(match_id: int) -> Dict:
+    """
+    Fetch comprehensive match details using match ID. Returns highly detailed match information.
+
+    Use this tool when users want:
+    - Goal scorers and assist providers
+    - Cards/disciplinary information
+    - Expected goals (xG) statistics
+    - Detailed event information
+    - Match timing and status updates
+
+    :param match_id: Unique integer ID of the match to fetch details for
+    :return: Dictionary with 'general' and 'header' objects containing comprehensive
+             match details including events, statistics, and team information
+    """
+    # logger.info(f"Fetching match details for match_id: {match_id}")
+    return await get_match_details_from_browser(match_id)
+
+def get_football_agent():
+    return Agent(
         model=BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION")),
-        tools=[fetch_matches_by_date, fetch_matches_by_multiple_dates],
+        tools=[fetch_matches_by_date, fetch_matches_by_multiple_dates, get_match_details],
         callback_handler=callback_handler,
         system_prompt=f"""You are a football assistant and enthusiast.
-        
-        Today's date: {datetime.now().strftime('%A, %B %d, %Y')} (YYYYMMDD: {datetime.now().strftime('%Y%m%d')})
-        
-        When users ask about fixtures pertaining to specific dates, calculate the YYYYMMDD format yourself and pass it to 
-        the tool."""
+
+            Today's date: {datetime.now().strftime('%A, %B %d, %Y')} (YYYYMMDD: {datetime.now().strftime('%Y%m%d')})
+
+            When users ask about fixtures pertaining to specific dates, calculate the YYYYMMDD format yourself and pass it to 
+            the tool."""
     )
+
+async def main():
+    agent = get_football_agent()
 
     result = await agent.invoke_async("Show me January first week's fixture results")
 
-    # Print just the text content from the assistant's response
     print(result.message["content"][0]["text"])
 
 if __name__ == "__main__":
