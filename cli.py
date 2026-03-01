@@ -1,16 +1,17 @@
 import asyncio
 
+from utils import make_user_id
+from prompt_toolkit.styles import Style
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
-from prompt_toolkit.styles import Style
+from services.fotmob import FotmobClient
 
-from agents.football import get_football_agent
-from utils import make_user_id
+fb_client = FotmobClient()
 
 COMMANDS = {
     "/football": {
         "description": "Football enthusiast and analyst agent",
-        "agent": get_football_agent()
+        "agent": fb_client.get_football_agent()
     }
 }
 
