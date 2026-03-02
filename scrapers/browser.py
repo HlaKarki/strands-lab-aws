@@ -1,8 +1,6 @@
 from collections.abc import Callable
 from typing import Dict, Any, Optional
-
 from playwright.async_api import async_playwright
-
 
 async def intercept_api_response(
     url: str,
