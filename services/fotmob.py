@@ -1,4 +1,8 @@
+import json
 import os
+from collections import defaultdict
+from pathlib import Path
+
 import httpx
 import logging
 from datetime import datetime
@@ -19,6 +23,8 @@ logger = logging.getLogger("fotmob_client")
 
 class FotmobClient:
     def __init__(self):
+        project_root = Path(__file__).parent.parent
+
         self.base_url = "https://www.fotmob.com/api"
         self.client = httpx.AsyncClient()
         self.headers = {
@@ -31,16 +37,25 @@ class FotmobClient:
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
         }
-        self.league_ids = {
+        self.leagues = {
             47: "Premier League",
-            42: "Champions League",
-            73: "Europa League",
             87: "LaLiga",
             54: "Bundesliga",
             53: "Ligue 1",
+            55: "Serie A"
         }
-        self.league_names = {v: k for k, v in self.league_ids.items()}
+        self.competitions = {
+            42: "Champions League",
+            73: "Europa League",
+            77: "World Cup",
+            132: "FA Cup",
+            50 : "EURO"
+        }
+        self.league_and_competition = self.leagues | self.competitions
+        self.league_by_names = {v: k for k, v in self.leagues.items()}
         self.tool_use_ids = []
+        self.teams_data_path = project_root / "data" / "teams.json"
+        self.players_data_path = project_root / "data" / "players.json"
         self.output_prompt = """Output Formatting:
         - This is a CLI terminal application. DO NOT use markdown formatting.
         - NO bold (**text**), NO headers (##), NO italics, NO markdown syntax.
@@ -232,6 +247,31 @@ class FotmobClient:
 
         return cleaned_content
 
+    async def sync_team_ids(self):
+        """
+        Syncs team ids for all major leagues
+        :return: None
+        """
+        tables = defaultdict(dict)
+        data = defaultdict(dict)
+        for comp_id, comp_name in self.leagues.items():
+            response = await self.client.get(f"https://www.fotmob.com/api/data/tltable?leagueId={comp_id}")
+            raw_data = response.json()
+            for d in raw_data:
+                if table_data := d.get("data", {}).get("table", {}).get("all", {}):
+                    tables[comp_name] = table_data
+
+        for league_name, league_table in tables.items():
+            for team in league_table:
+                if team_name := team.get("name"):
+                    data[league_name][team_name] = team.get("id")
+
+        self.teams_data_path.parent.mkdir(parents=True, exist_ok=True)
+
+        prepped_data = {k: dict(v) for k, v in data.items()}
+        with open(self.teams_data_path, "w") as f:
+            json.dump(prepped_data, f, indent=4)
+
     @tool
     async def fetch_fixtures_by_date(self, date: int):
         """
@@ -250,7 +290,7 @@ class FotmobClient:
 
         relevant_leagues = [
             league for league in data["leagues"]
-            if league["primaryId"] in self.league_ids
+            if league["primaryId"] in self.league_and_competition
         ]
         return relevant_leagues
 
@@ -327,12 +367,12 @@ class FotmobClient:
 
         NOTE: For "best/rated teams" by performance metrics, use get_league_statistics instead.
 
-        Available leagues: {list(self.league_ids.values())}
+        Available leagues: {list(self.league_and_competition.values())}
 
         :param league_name: Name of the league (must exactly match one from available leagues list)
         :return: Array of team objects with position, points, form, goals, and qualification info
         """
-        league_id = self.league_names[league_name]
+        league_id = self.league_by_names[league_name]
 
         response = await self.client.get(
             f"https://www.fotmob.com/api/data/tltable?leagueId={league_id}",
@@ -369,12 +409,12 @@ class FotmobClient:
 
         NOTE: Use this for "best/rated teams" queries. Use get_league_table for standings/table position.
 
-        Available leagues: {list(self.league_ids.values())}
+        Available leagues: {list(self.league_and_competition.values())}
 
         :param league_name: Name of the league (must exactly match one from available leagues list)
         :return: Dictionary with 'overview' (topPlayers) and 'stats' (players/teams arrays)
         """
-        league_id = self.league_names[league_name]
+        league_id = self.league_by_names[league_name]
         response = await self.client.get(f"https://www.fotmob.com/api/data/leagues?id={league_id}&ccode3=USA_MD")
         data = response.json()
         cleaned = {
@@ -435,6 +475,23 @@ class FotmobClient:
             "facts": facts,
             "content": content,
         }
+
+    @tool
+    async def get_team_fixtures(self, team_id: int, matches_ahead: int = 7):
+        """
+        Fetch upcoming fixtures for a specific team.
+
+        Use when users want:
+        - "When does Man United play next?"
+        - "Show me Man United's next 5 games"
+        - "What's Man United's schedule this month?"
+
+        :param team_id: Unique integer ID of the team
+        :param matches_ahead: Number of matches to look ahead
+        :return:
+        """
+
+        return None
 
     def get_football_agent(self):
         return Agent(
