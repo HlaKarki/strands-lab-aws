@@ -1,7 +1,5 @@
-import json
 import os
 from collections import defaultdict
-from pathlib import Path
 
 import httpx
 import logging
@@ -23,8 +21,6 @@ logger = logging.getLogger("fotmob_client")
 
 class FotmobClient:
     def __init__(self):
-        project_root = Path(__file__).parent.parent
-
         self.base_url = "https://www.fotmob.com/api"
         self.client = httpx.AsyncClient()
         self.headers = {
@@ -54,8 +50,6 @@ class FotmobClient:
         self.league_and_competition = self.leagues | self.competitions
         self.league_by_names = {v: k for k, v in self.leagues.items()}
         self.tool_use_ids = []
-        self.teams_data_path = project_root / "data" / "teams.json"
-        self.players_data_path = project_root / "data" / "players.json"
         self.output_prompt = """Output Formatting:
         - This is a CLI terminal application. DO NOT use markdown formatting.
         - NO bold (**text**), NO headers (##), NO italics, NO markdown syntax.
@@ -247,30 +241,75 @@ class FotmobClient:
 
         return cleaned_content
 
-    async def sync_team_ids(self):
-        """
-        Syncs team ids for all major leagues
-        :return: None
-        """
-        tables = defaultdict(dict)
-        data = defaultdict(dict)
-        for comp_id, comp_name in self.leagues.items():
-            response = await self.client.get(f"https://www.fotmob.com/api/data/tltable?leagueId={comp_id}")
-            raw_data = response.json()
-            for d in raw_data:
-                if table_data := d.get("data", {}).get("table", {}).get("all", {}):
-                    tables[comp_name] = table_data
+    async def fetch_team_details(
+        self,
+        team_id: int,
+        get_fixtures: bool = True,
+        get_trophies: bool = False,
+        get_historical_table_data: bool = False,
+        get_coach_history: bool = False,
+        get_team_stats: bool = False,
+        get_player_stats: bool = False,
+        get_table: bool = False,
+        get_xg_table: bool = False,
+        get_top_players: bool = False,
+        get_venue_info: bool = False,
+        get_news_summary: bool = False,
+        get_transfers: bool = False,
+        get_squad_info: bool = False,
+    ) -> dict[str, Any]:
+        response = await self.client.get(f"https://www.fotmob.com/api/data/teams?id={team_id}&ccode3=USA")
+        data = response.json()
 
-        for league_name, league_table in tables.items():
-            for team in league_table:
-                if team_name := team.get("name"):
-                    data[league_name][team_name] = team.get("id")
+        consolidated_data = defaultdict(dict)
 
-        self.teams_data_path.parent.mkdir(parents=True, exist_ok=True)
+        ############## Fixtures ##################
+        if get_fixtures and (fixtures := data.get("fixtures", {}).get("allFixtures", {})):
+            consolidated_data["fixtures"] = fixtures
 
-        prepped_data = {k: dict(v) for k, v in data.items()}
-        with open(self.teams_data_path, "w") as f:
-            json.dump(prepped_data, f, indent=4)
+        ############## History ##################
+        if get_trophies and (trophies := data.get("history", {}).get("trophyList", [])):
+            consolidated_data["trophies"] = trophies
+
+        if get_coach_history and (coach_history := data.get("history", {}).get("coachHistory", [])):
+            consolidated_data["coach_history"] = coach_history
+
+        if get_historical_table_data and (historical_table_data := data.get("history", {}).get("historicalTableData", {}).get("ranks", [])):
+            consolidated_data["historical_table_data"] = historical_table_data
+
+        ############## Stats ##################
+        if get_team_stats and (team_stats := data.get("stats", {}).get("teams", [])):
+            consolidated_data["team_stats"] = team_stats
+
+        if get_player_stats and (player_stats := data.get("stats", {}).get("players", [])):
+            consolidated_data["player_stats"] = player_stats
+
+        ############## Table ##################
+        if get_table and (table := data.get("table", [{}])[0].get("data", {}).get("table", {}).get("all", {})):
+            consolidated_data["table"] = table
+
+        if get_xg_table and (xg_table := data.get("table", [{}])[0].get("data", {}).get("table", {}).get("xg", {})):
+            consolidated_data["xg_table"] = xg_table
+
+        ############## Transfers ##################
+        if get_transfers and (transfers := data.get("transfers", {}).get("data", {})):
+            consolidated_data["transfers"] = transfers
+
+        ############## Overview ##################
+        if get_top_players and (top_players := data.get("overview", {}).get("topPlayers", {})):
+            consolidated_data["top_players"] = top_players
+
+        if get_venue_info and (venue_info := data.get("overview", {}).get("venue", {})):
+            consolidated_data["venue_info"] = venue_info
+
+        if get_news_summary and (news_summary := data.get("overview", {}).get("newsSummary", {})):
+            consolidated_data["news_summary"] = news_summary
+
+        ############## Squad ##################
+        if get_squad_info and (squad_info := data.get("squad", {}).get("squad", [])):
+            consolidated_data["squad_info"] = squad_info
+
+        return dict(consolidated_data)
 
     @tool
     async def fetch_fixtures_by_date(self, date: int):
@@ -477,21 +516,238 @@ class FotmobClient:
         }
 
     @tool
-    async def get_team_fixtures(self, team_id: int, matches_ahead: int = 7):
+    async def search_fotmob(self, query: str, search_type: str = "all"):
         """
-        Fetch upcoming fixtures for a specific team.
+        Universal search for players or teams on Fotmob.
 
-        Use when users want:
-        - "When does Man United play next?"
-        - "Show me Man United's next 5 games"
-        - "What's Man United's schedule this month?"
+        This is the PRIMARY search tool - use it to find IDs before calling detail tools.
 
-        :param team_id: Unique integer ID of the team
-        :param matches_ahead: Number of matches to look ahead
-        :return:
+        Returns matching results with IDs for:
+        - Players: Use ID with get_player_details (when implemented)
+        - Teams: Use ID with get_team_details (when implemented)
+
+        Use this tool when:
+        - User asks about a specific player ("Show me Salah's stats")
+        - User asks about a specific team ("Arsenal's recent form")
+        - User searches by name and you need the ID for another tool
+        - Resolving ambiguity (multiple "Bruno Fernandes" → which one?)
+
+        :param query: Search term (e.g., "Bruno Fernandes", "Arsenal")
+        :param search_type: Filter results by type: "player", "team", or "all" (default)
+        :return: List of results with IDs, names, and metadata
         """
+        # Convert spaces to + for URL encoding
+        search_term = query.replace(" ", "+")
 
-        return None
+        response = await self.client.get(
+            f"https://www.fotmob.com/api/data/search/suggest?hits=50&lang=en&term={search_term}",
+            headers=self.headers
+        )
+
+        if response.status_code != 200:
+            return {"error": f"Search failed with status {response.status_code}"}
+
+        data = response.json()
+        results = []
+
+        # Parse all sections in the response
+        for section in data:
+            for suggestion in section.get("suggestions", []):
+                item_type = suggestion.get("type")
+
+                # Filter by type if specified
+                if search_type != "all" and item_type != search_type:
+                    continue
+
+                # Parse based on type
+                if item_type == "player":
+                    # Skip coaches
+                    if suggestion.get("isCoach", False):
+                        continue
+
+                    results.append({
+                        "type": "player",
+                        "id": suggestion.get("id"),
+                        "name": suggestion.get("name"),
+                        "team": suggestion.get("teamName", "Unknown"),
+                        "team_id": suggestion.get("teamId"),
+                    })
+
+                elif item_type == "team":
+                    results.append({
+                        "type": "team",
+                        "id": suggestion.get("id"),
+                        "name": suggestion.get("name"),
+                    })
+
+        # Remove duplicates (same ID might appear in multiple sections)
+        seen_ids = set()
+        unique_results = []
+        for result in results:
+            result_id = result.get("id")
+            if result_id and result_id not in seen_ids:
+                seen_ids.add(result_id)
+                unique_results.append(result)
+
+        # Return top 20 results
+        return unique_results[:20]
+
+    @tool
+    async def get_team_fixtures(self, team_id: int):
+        """
+        Fetch upcoming and recent fixtures for a specific team.
+
+        Returns match schedule including:
+        - Upcoming fixtures with dates and opponents
+        - Recent results
+        - Competition names (Premier League, Champions League, etc.)
+        - Home/away status
+
+        Use this tool when users want:
+        - "When does Arsenal play next?"
+        - "Show me Manchester United's next 5 games"
+        - "What's Liverpool's schedule this month?"
+        - "Who does Real Madrid play next?"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Dictionary with upcoming and recent fixtures
+        """
+        return await self.fetch_team_details(team_id, get_fixtures=True)
+
+    @tool
+    async def get_team_squad(self, team_id: int):
+        """
+        Fetch current squad/roster for a team.
+
+        Returns comprehensive squad information including:
+        - All players in the squad
+        - Player positions
+        - Jersey numbers
+        - Player IDs (can be used with get_player_details)
+        - Nationality
+        - Injured Players
+
+        Use this tool when users want:
+        - "Who plays for Liverpool?"
+        - "Show me Arsenal's squad"
+        - "List Manchester City's players"
+        - "What's Barcelona's current roster?"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Squad information
+        """
+        return await self.fetch_team_details(team_id, get_squad_info=True)
+
+    @tool
+    async def get_team_stats(self, team_id: int):
+        """
+        Fetch team-level statistics and performance metrics.
+
+        Returns detailed team statistical data including:
+        - Goals scored/conceded
+        - Possession percentage
+        - Expected goals (xG)
+        - Shots on/off target
+        - Pass accuracy
+        - Statistical rankings within the league
+
+        Use this tool when users want:
+        - "How is Real Madrid performing this season?"
+        - "Show me Barcelona's team stats"
+        - "What are Manchester City's xG numbers?"
+        - "Arsenal's defensive record"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Team statistics
+        """
+        return await self.fetch_team_details(team_id, get_team_stats=True)
+
+    @tool
+    async def get_team_player_stats(self, team_id: int):
+        """
+        Fetch player statistics for all players in a team.
+
+        Returns player-level statistics including:
+        - Top scorers
+        - Assist leaders
+        - Appearances
+        - Minutes played
+        - Goals per 90 minutes
+        - Individual player ratings
+
+        Use this tool when users want:
+        - "Who are Arsenal's top scorers?"
+        - "Show me Liverpool's best players this season"
+        - "Manchester United player statistics"
+        - "Who has the most assists for Barcelona?"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Player statistics for the team
+        """
+        return await self.fetch_team_details(team_id, get_player_stats=True)
+
+    @tool
+    async def get_team_transfers(self, team_id: int):
+        """
+        Fetch transfer activity for a team (arrivals and departures).
+
+        Returns transfer information including:
+        - Players signed (arrivals)
+        - Players sold/released (departures)
+        - Transfer fees
+        - Transfer dates
+        - Clubs involved
+
+        Use this tool when users want:
+        - "Who did Chelsea sign this summer?"
+        - "Show me Arsenal's transfers"
+        - "What players did Liverpool buy?"
+        - "Transfer activity for Manchester United"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Transfer information
+        """
+        return await self.fetch_team_details(team_id, get_transfers=True)
+
+    @tool
+    async def get_team_overview(self, team_id: int):
+        """
+        Fetch general overview information for a team.
+
+        Returns overview data including:
+        - Top/star players
+        - Venue/stadium information (name, capacity, location)
+        - Recent news summary
+        - League table position
+
+        Use this tool when users want:
+        - "Tell me about Arsenal"
+        - "What stadium does Liverpool play at?"
+        - "Who are Barcelona's key players?"
+        - "General info about Real Madrid"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Team overview information
+        """
+        return await self.fetch_team_details(
+            team_id,
+            get_top_players=True,
+            get_venue_info=True,
+            get_news_summary=True,
+            get_table=True
+        )
 
     def get_football_agent(self):
         return Agent(
@@ -502,7 +758,14 @@ class FotmobClient:
                 self.get_completed_fixture_details,
                 self.get_league_table,
                 self.get_league_statistics,
-                self.get_fixture_preview
+                self.get_fixture_preview,
+                self.search_fotmob,
+                self.get_team_fixtures,
+                self.get_team_squad,
+                self.get_team_overview,
+                self.get_team_transfers,
+                self.get_team_stats,
+                self.get_team_player_stats
             ],
             callback_handler=self.callback_handler,
             system_prompt=f"""You are a football assistant and enthusiast.
