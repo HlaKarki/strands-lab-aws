@@ -815,6 +815,101 @@ class FotmobClient:
         )
 
     @tool
+    async def get_team_trophies(self, team_id: int):
+        """
+        Fetch trophies and honours won by a team.
+
+        Returns trophy information including:
+        - Competition names (league titles, cups, European trophies)
+        - Years won
+        - Total trophy count
+
+        Use this tool when users want:
+        - "What has Arsenal won?"
+        - "Show me Barcelona's trophies"
+        - "Manchester United's honours"
+        - "How many Champions League titles does Real Madrid have?"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Trophy and honours information
+        """
+        return await self.fetch_team_details(team_id, get_trophies=True)
+
+    @tool
+    async def get_team_history(self, team_id: int):
+        """
+        Fetch historical league positions and performance data.
+
+        Returns historical data including:
+        - League positions over multiple seasons
+        - Points totals per season
+        - Historical performance trends
+
+        Use this tool when users want:
+        - "Where did Liverpool finish last season?"
+        - "Arsenal's league positions over time"
+        - "Show me Chelsea's historical performance"
+        - "How has Manchester United done in recent years?"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Historical league position data
+        """
+        return await self.fetch_team_details(team_id, get_historical_table_data=True)
+
+    @tool
+    async def get_team_coach_history(self, team_id: int):
+        """
+        Fetch manager/coach history for a team.
+
+        Returns coach information including:
+        - Manager names
+        - Periods of management
+        - Win percentages
+        - Notable achievements
+
+        Use this tool when users want:
+        - "Who managed Manchester United?"
+        - "Show me Arsenal's managers"
+        - "List of Barcelona coaches"
+        - "Who was Liverpool's manager in 2020?"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Manager/coach history
+        """
+        return await self.fetch_team_details(team_id, get_coach_history=True)
+
+    @tool
+    async def get_team_xg_table(self, team_id: int):
+        """
+        Fetch expected goals (xG) league table.
+
+        Returns xG-based standings including:
+        - Expected goals for (xGF)
+        - Expected goals against (xGA)
+        - xG difference
+        - Comparison to actual league position
+        - Performance vs expected metrics
+
+        Use this tool when users want:
+        - "Show me the xG table"
+        - "Expected goals standings"
+        - "How does Arsenal's xG compare to their position?"
+        - "Which teams are overperforming/underperforming xG?"
+
+        NOTE: Use search_fotmob first to get the team_id.
+
+        :param team_id: Unique integer ID of the team (from search_fotmob)
+        :return: Expected goals table data
+        """
+        return await self.fetch_team_details(team_id, get_xg_table=True)
+
+    @tool
     async def get_player_profile(self, player_id: int):
         """
         Fetch comprehensive player profile information.
@@ -1015,6 +1110,10 @@ class FotmobClient:
                 self.get_team_transfers,
                 self.get_team_stats,
                 self.get_team_player_stats,
+                self.get_team_trophies,
+                self.get_team_history,
+                self.get_team_coach_history,
+                self.get_team_xg_table,
                 self.get_player_profile,
                 self.get_player_stats,
                 self.get_player_recent_form,
