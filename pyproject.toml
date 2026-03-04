@@ -12,6 +12,12 @@ dependencies = [
     "prompt-toolkit"
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0"
+]
+
 [project.scripts]
 install-browsers = "playwright._impl._driver:main"
 
