@@ -7,10 +7,14 @@ async def main():
     # result = await fb_client.get_league_table("Premier League")
     # result = await fb_client.get_league_statistics("Premier League")
 
-    result = await fb_client.fetch_team_details(
-        10260,True
-    )
-    print(result)
+    # result = await fb_client.fetch_team_details(
+    #     10260,True
+    # )
+    # print(result)
+
+    # result = await fb_client.fetch_player_details(422685)
+    result = await fb_client.fetch_player_details(422685, True)
+    print(dict(result))
 
 if __name__ == "__main__":
     asyncio.run(main())

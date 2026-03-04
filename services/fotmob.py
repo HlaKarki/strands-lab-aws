@@ -8,7 +8,7 @@ from typing import List, Any
 from dotenv import load_dotenv
 from strands import Agent, tool
 from strands.models import BedrockModel
-from scrapers.browser import intercept_api_response
+from scrapers.browser import intercept_api_response, extract_nextjs_data
 
 load_dotenv()
 
@@ -310,6 +310,71 @@ class FotmobClient:
             consolidated_data["squad_info"] = squad_info
 
         return dict(consolidated_data)
+
+    @staticmethod
+    async def fetch_player_details(
+        player_id: int,
+        get_player_info: bool = True,
+        get_position_info: bool = False,
+        get_league_stats: bool = False,
+        get_primary_team: bool = False,
+        get_contract_info: bool = False,
+        get_birth_date: bool = False,
+        get_trophies: bool = False,
+        get_recent_matches: bool = False,
+        get_career_history: bool = False,
+        get_traits: bool = False,
+        get_next_match: bool = False,
+    ) -> dict[str, Any]:
+        logger.info(f"Fetching player details for player_id: {player_id}")
+        page_url = f"https://www.fotmob.com/players/{player_id}/"
+
+        data = await extract_nextjs_data(
+            url=page_url,
+            data_path="props.pageProps.data",
+            headless=True
+        )
+
+        if not data:
+            raise Exception(f"Failed to fetch player details for player_id: {player_id}")
+
+        consolidated_data = defaultdict(dict)
+
+        if get_league_stats and (league_stats := data.get("mainLeague", {}).get("stats", [])):
+            consolidated_data["league_stats"] = league_stats
+
+        if get_player_info and (player_info := data.get("playerInformation", [])):
+            consolidated_data["player_info"] = player_info
+
+        if get_position_info and (position_info := data.get("positionDescription", {})):
+            consolidated_data["position_info"] = position_info
+
+        if get_primary_team and (primary_team := data.get("primaryTeam", {})):
+            consolidated_data["primary_team"] = primary_team
+
+        if get_contract_info and (contract_info := data.get("contractEnd", {})):
+            consolidated_data["contract_info"] = contract_info
+
+        if get_birth_date and (birth_date := data.get("birthDate", {})):
+            consolidated_data["birth_date"] = birth_date
+
+        if get_trophies and (trophies := data.get("trophies", {})):
+            consolidated_data["trophies"] = trophies
+
+        if get_recent_matches and (recent_matches := data.get("recentMatches", [])):
+            consolidated_data["recent_matches"] = recent_matches
+
+        if get_career_history and (career_history := data.get("careerHistory", {}).get("careerItems", {})):
+            consolidated_data["career_history"] = career_history
+
+        if get_traits and (traits := data.get("traits", {})):
+            consolidated_data["traits"] = traits
+
+        if get_next_match and (next_match := data.get("nextMatch", {})):
+            consolidated_data["next_match"] = next_match
+
+        return consolidated_data
+
 
     @tool
     async def fetch_fixtures_by_date(self, date: int):
@@ -749,6 +814,190 @@ class FotmobClient:
             get_table=True
         )
 
+    @tool
+    async def get_player_profile(self, player_id: int):
+        """
+        Fetch comprehensive player profile information.
+
+        Use this tool when users ask about:
+        - Player basic information (age, height, nationality, preferred foot)
+        - Current team and position
+        - Contract details
+        - Market value
+        - Shirt number
+
+        Examples:
+        - "Tell me about Bruno Fernandes"
+        - "What position does [player] play?"
+        - "How old is [player]?"
+        - "What team does [player] play for?"
+
+        :param player_id: Unique integer ID of the player (use search_fotmob to find ID first)
+        :return: Dictionary with player information, position, and primary team details
+        """
+        logger.info(f"Fetching player profile for player_id: {player_id}")
+        return await self.fetch_player_details(
+            player_id=player_id,
+            get_player_info=True,
+            get_position_info=True,
+            get_primary_team=True,
+            get_contract_info=True,
+            get_birth_date=True
+        )
+
+    @tool
+    async def get_player_stats(self, player_id: int):
+        """
+        Fetch current season statistics for a player in their main league.
+
+        Use this tool when users ask about:
+        - Goals and assists this season
+        - Matches played and minutes
+        - Performance ratings
+        - Yellow/red cards
+        - Specific league statistics
+
+        Examples:
+        - "How many goals has [player] scored this season?"
+        - "Show me [player]'s stats"
+        - "What's [player]'s rating this season?"
+
+        :param player_id: Unique integer ID of the player (use search_fotmob to find ID first)
+        :return: Dictionary with current season statistics in main league
+        """
+        logger.info(f"Fetching player stats for player_id: {player_id}")
+        return await self.fetch_player_details(
+            player_id=player_id,
+            get_league_stats=True,
+            get_primary_team=True
+        )
+
+    @tool
+    async def get_player_recent_form(self, player_id: int):
+        """
+        Fetch recent match performances and upcoming fixture for a player.
+
+        Use this tool when users ask about:
+        - Recent match performances
+        - Goals/assists in recent games
+        - Player of the match awards
+        - Match ratings
+        - Next upcoming match
+
+        Examples:
+        - "How has [player] been playing recently?"
+        - "Show me [player]'s last few games"
+        - "When is [player]'s next match?"
+        - "Did [player] score in the last game?"
+
+        :param player_id: Unique integer ID of the player (use search_fotmob to find ID first)
+        :return: Dictionary with recent matches and next match information
+        """
+        logger.info(f"Fetching player recent form for player_id: {player_id}")
+        return await self.fetch_player_details(
+            player_id=player_id,
+            get_recent_matches=True,
+            get_next_match=True
+        )
+
+    @tool
+    async def get_player_career(
+        self,
+        player_id: int,
+        career_type: str = "both",
+        limit_seasons: int = 5
+    ):
+        """
+        Fetch career history and achievements (with limits to avoid context bloat).
+
+        Use this tool when users ask about:
+        - Career history (clubs played for)
+        - Trophies and honours won
+        - Career timeline
+        - Previous teams
+
+        Examples:
+        - "What trophies has [player] won?"
+        - "Show me [player]'s career history"
+        - "Which clubs has [player] played for?"
+
+        :param player_id: Unique integer ID of the player (use search_fotmob to find ID first)
+        :param career_type: Type of career to fetch - "senior" (club), "national" (international), or "both" (default)
+        :param limit_seasons: Max number of season entries to return per career type (default 15)
+        :return: Dictionary with career history and trophies (limited)
+        """
+        logger.info(f"Fetching player career for player_id: {player_id}, type: {career_type}")
+        data = await self.fetch_player_details(
+            player_id=player_id,
+            get_trophies=True,
+            get_career_history=True
+        )
+
+        # Limit career history to avoid context bloat
+        if "career_history" in data:
+            career = data["career_history"]
+
+            # Filter by career type and limit arrays
+            if career_type == "senior" and "senior" in career:
+                filtered_career = {"senior": career["senior"]}
+            elif career_type == "national" and "national team" in career:
+                filtered_career = {"nationalTeam": career["national team"]}
+            else:
+                filtered_career = career
+
+            # Limit teamEntries and seasonEntries for each career type
+            for career_cat in filtered_career.values():
+                if isinstance(career_cat, dict):
+                    if "seasonEntries" in career_cat:
+                        career_cat["seasonEntries"] = career_cat["seasonEntries"][:limit_seasons]
+
+            data["career_history"] = filtered_career
+
+        return data
+
+    @tool
+    async def get_player_recent_form(self, player_id: int, limit: int = 5):
+        """
+        Fetch recent match performances.
+
+        Use this tool when users ask about recent performances or form.
+
+        Examples: "How has [player] been playing recently?", "Show me [player]'s last 5 games"
+
+        :param player_id: Unique integer ID of the player
+        :param limit: Number of recent matches to return (default 5, max 15)
+        :return: Dictionary with recent matches (limited) and next match
+        """
+        limit = min(limit, 15)  # Cap at 15 to avoid context bloat
+        data = await self.fetch_player_details(
+            player_id=player_id,
+            get_recent_matches=True,
+            get_next_match=True
+        )
+
+        # Limit recent matches to avoid context bloat
+        if "recent_matches" in data:
+            data["recent_matches"] = data["recent_matches"][:limit]
+
+        return data
+
+    @tool
+    async def get_player_trophies(self, player_id: int):
+        """
+        Fetch trophies and honours won by a player.
+
+        Use this tool when users ask about achievements and silverware.
+
+        Examples: "What trophies has [player] won?", "Has [player] won the league?"
+
+        :param player_id: Unique integer ID of the player
+        :return: Dictionary with trophies grouped by club and competition
+        """
+        return await self.fetch_player_details(
+            player_id=player_id,
+            get_trophies=True
+        )
+
     def get_football_agent(self):
         return Agent(
             model=BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION")),
@@ -765,7 +1014,12 @@ class FotmobClient:
                 self.get_team_overview,
                 self.get_team_transfers,
                 self.get_team_stats,
-                self.get_team_player_stats
+                self.get_team_player_stats,
+                self.get_player_profile,
+                self.get_player_stats,
+                self.get_player_recent_form,
+                self.get_player_career,
+                self.get_player_trophies
             ],
             callback_handler=self.callback_handler,
             system_prompt=f"""You are a football assistant and enthusiast.

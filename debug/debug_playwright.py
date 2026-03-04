@@ -2,19 +2,8 @@ import asyncio
 import json
 from playwright.async_api import async_playwright
 
-# Data we are interested in
-data_we_need = [
-    "content.matchFacts.playerOfTheMatch", "content.matchFacts.infoBox",
-    "content.matchFacts.postReview", "content.matchFacts.preReview",
-    "content.matchFacts.topPlayer", "content.stats.Periods.All.stats",
-]
-
-data_for_later =[
-    "content.playerStats", "content.shotmap", "content.lineup"
-    "content.h2h", "content.momentum",
-]
-
 async def test():
+    player_id = 422685
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=False)
         context = await browser.new_context(
@@ -28,40 +17,55 @@ async def test():
         api_response = None
         async def handle_response(response):
             nonlocal api_response
-            if 'matchDetails?matchId=' in response.url:
-                print(f"Intercepted: {response.url}")
+            print(f"Response: {response.url}")
+            if f'playerData?id={player_id}' in response.url:
+                print(f"✓ Intercepted: {response.url}")
                 try:
                     data = await response.json()
                     api_response = data
-                except:
+                    print(f"✓ JSON parsed successfully")
+                except Exception as e:
+                    print(f"✗ Failed to parse JSON: {e}")
                     print(f"Status: {response.status}")
 
         page.on('response', handle_response)
 
-        # Visit a match page instead of API directly
-        print("Visiting match page...")
-        match_url = "https://www.fotmob.com/match/4813652"
-        await page.goto(match_url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(5000)  # Wait for API calls
+        # Visit player page
+        print(f"Visiting player page {player_id}...")
+        player_url = f"https://www.fotmob.com/players/{player_id}/"
+        await page.goto(player_url, wait_until="domcontentloaded")
+        await page.wait_for_timeout(2000)  # Wait for page to load
+
+        # Try to extract data from window.__NEXT_DATA__
+        print("\n=== Trying window.__NEXT_DATA__ ===")
+        next_data = await page.evaluate("() => window.__NEXT_DATA__")
+
+        player_data = None
+        if next_data:
+            print(f"✓ Found __NEXT_DATA__")
+            print(f"Top-level keys: {list(next_data.keys())}")
+
+            # Look for player data in props
+            if 'props' in next_data:
+                print(f"Props keys: {list(next_data['props'].keys())}")
+                if 'pageProps' in next_data['props']:
+                    print(f"PageProps keys: {list(next_data['props']['pageProps'].keys())}")
+                    if 'data' in next_data['props']['pageProps']:
+                        player_data = next_data['props']['pageProps']['data']
+                        print(f"\n✓ Found player data!")
+                        print(f"Player data keys: {list(player_data.keys())}")
+        else:
+            print("✗ No __NEXT_DATA__ found")
 
         if api_response:
-            print("\n=== GOT API RESPONSE ===")
-            cleaned = {}
-            for path in data_we_need:
-                keys = path.split('.')
-                value = api_response
-                for key in keys:
-                    value = value.get(key) if isinstance(value, dict) else None
-                    if value is None:
-                        break
-                if value is not None:
-                    cleaned[path] = value
-
-            print(json.dumps(cleaned, indent=2))
+            print("\n=== GOT API RESPONSE (from intercept) ===")
+            print(f"Keys: {list(api_response.keys())}")
         else:
             print("\n=== NO API RESPONSE CAPTURED ===")
 
-        # await browser.close()
+        # Keep browser open - wait for user input before closing (uncomment to debug)
+        # input("Press Enter to close browser...")
+        await browser.close()
 
 if __name__ == "__main__":
     asyncio.run(test())
