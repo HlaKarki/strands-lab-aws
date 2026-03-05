@@ -9,7 +9,9 @@ dependencies = [
     "strands-agents-tools",
     "strands-agents-builder",
     "playwright",
-    "prompt-toolkit"
+    "prompt-toolkit",
+    "python-jobspy>=1.1.82",
+    "pymupdf>=1.27.1",
 ]
 
 [project.optional-dependencies]
