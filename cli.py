@@ -12,7 +12,7 @@ COMMANDS = {
     "/football": {
         "description": "Football enthusiast and analyst agent",
         "agent": fb_client.get_football_agent()
-    }
+    },
 }
 
 command_completer = WordCompleter(
