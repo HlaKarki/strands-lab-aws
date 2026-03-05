@@ -29,6 +29,32 @@ style = Style.from_dict({
     'scrollbar.button': 'bg:#222222',
 })
 
+seen_tools = set()
+
+def process_event(event, debug=False):
+    if debug:
+        if event.get("init_event_loop", False):
+            print("> Event loop initialized")
+        elif event.get("start_event_loop", False):
+            print("> Event loop cycle starting")
+        elif "message" in event:
+            print(f"> New message created: {event['message']['role']}")
+        elif "result" in event:
+            print("> Agent completed with result")
+        elif event.get("force_stop", False):
+            print(f"> Event loop force-stopped: {event.get('force_stop_reason', 'unknown reason')}")
+
+    if "current_tool_use" in event and event["current_tool_use"].get("name"):
+        tool = event["current_tool_use"]
+        tool_name = tool["name"]
+        tool_id = tool.get("toolUseId")
+        if tool_name and tool_id and tool_id not in seen_tools:
+            seen_tools.add(tool_id)
+            print(f"⚙︎ Using tool: {tool_name}")
+
+    if "data" in event:
+        print(event["data"], end="", flush=True)
+
 async def main():
     user_id = make_user_id()
     session = PromptSession(
@@ -74,8 +100,7 @@ async def main():
             # Streaming
             print()
             async for event in agent.stream_async(message):
-                if "data" in event:
-                    print(event["data"], end="", flush=True)
+                process_event(event)
             print()
 
         except KeyboardInterrupt:

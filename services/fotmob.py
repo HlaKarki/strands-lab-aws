@@ -49,7 +49,6 @@ class FotmobClient:
         }
         self.league_and_competition = self.leagues | self.competitions
         self.league_by_names = {v: k for k, v in self.leagues.items()}
-        self.tool_use_ids = []
         self.output_prompt = """Output Formatting:
         - This is a CLI terminal application. DO NOT use markdown formatting.
         - NO bold (**text**), NO headers (##), NO italics, NO markdown syntax.
@@ -104,13 +103,6 @@ class FotmobClient:
          19  Levante                       26   5   6  15   28-44     -16   21
          20  Real Oviedo                   25   3   8  14   16-40     -24   17
         """
-
-    def callback_handler(self, **kwargs):
-        if "current_tool_use" in kwargs:
-            tool_object = kwargs["current_tool_use"]
-            if tool_object["toolUseId"] not in self.tool_use_ids:
-                logger.info(f"\n[Using tool: {tool_object.get('name')}]")
-                self.tool_use_ids.append(tool_object["toolUseId"])
 
     @staticmethod
     def parse_league_overview(league_overview: dict) -> dict[str, dict]:
@@ -1120,7 +1112,7 @@ class FotmobClient:
                 self.get_player_career,
                 self.get_player_trophies
             ],
-            callback_handler=self.callback_handler,
+            callback_handler=None,
             system_prompt=f"""You are a football assistant and enthusiast.
 
                 Today's date: {datetime.now().strftime('%A, %B %d, %Y')} (YYYYMMDD: {datetime.now().strftime('%Y%m%d')})
