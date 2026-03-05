@@ -71,8 +71,12 @@ async def main():
             if agent is None:
                 print(f"Unknown agent for command '{command}'")
 
-            result = await agent.invoke_async(message)
-            print(f"> {result.message['content'][0]['text']}")
+            # Streaming
+            print()
+            async for event in agent.stream_async(message):
+                if "data" in event:
+                    print(event["data"], end="", flush=True)
+            print()
 
         except KeyboardInterrupt:
             # save conversation/progress
