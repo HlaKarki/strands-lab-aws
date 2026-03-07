@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from strands import tool, Agent
 from strands.models import BedrockModel
 from strands.multiagent import Swarm
-from strands_tools import http_request, current_time
+from strands_tools import http_request, current_time, file_write
 
 load_dotenv()
 
@@ -173,7 +173,7 @@ class JobSwarm:
 
             Your tools:
             1. load_resume - Load user's resume from file (prompts for path if not provided)
-            2. analyze_resume - Extract and analyze resume content
+            2. analyze_resume - Get resume content and analyze
             
             Workflow:
             - If user wants to analyze resume, use load_resume first (if not already loaded)
@@ -220,29 +220,126 @@ class JobSwarm:
             - https://www.themuse.com/jobs
             
             Extract for each job: job_url, job_title, company_name, location, job_description, salary_range, job_type, work_arrangement, experience_level, required_skills, date_posted.
+
+            After finding jobs, hand off to persist_job_applications to save them locally.""",
+        )
+
+    def _get_persist_job_applications_agent(self):
+        return Agent(
+            name="persist_job_applications",
+            model=self.model,
+            tools=[file_write, current_time],
+            callback_handler=None,
+            system_prompt="""Extract job postings from the previous agent's output and save them locally.
+
+            CRITICAL: Look at the job_finder agent's output above to get the job data.
             
-            Hand off to fit_scorer when done.""",
+            Save to: ./resumes/opportunities/jobs_{current_timestamp}.json
+            
+            JSON Format (must include ALL fields for each job):
+            ```json
+            [
+              {
+                "job_url": "https://...",
+                "job_title": "Senior Software Engineer",
+                "company_name": "Acme Corp",
+                "location": "San Francisco, CA",
+                "job_description": "Full description...",
+                "salary_range": "$150k-$190k",
+                "job_type": "Full-time",
+                "work_arrangement": "Hybrid",
+                "experience_level": "Senior",
+                "required_skills": ["Python", "AWS"],
+                "date_posted": "2024-03-01",
+                "application_deadline": null,
+                "benefits": ["equity", "health insurance"],
+                "scraped_at": "{current_timestamp}"
+              }
+            ]
+            ```
+            
+            Steps:
+            1. Use current_time to get timestamp
+            2. Extract all jobs from previous output
+            3. Use file_write to save as JSON
+            4. Confirm: "Saved X jobs to ./resumes/opportunities/jobs_{timestamp}.json"
+            5. Hand off to fit_scorer to analyze and score the jobs against the user's resume"""
         )
 
     def _get_fit_scorer_agent(self):
         return Agent(
             name="fit_scorer",
             model=self.model,
-            tools=[],
+            tools=[self.analyze_resume],
             callback_handler=None,
-            system_prompt="""You are a job fit scoring specialist.
+            system_prompt="""You are a job fit scoring specialist who analyzes how well jobs match the user's resume.
 
-            Your role:
-            - Score how well jobs match the user's resume (0-100 scale)
-            - Identify skill matches and gaps
-            - Rank jobs by fit score
+            Workflow:
+            1. Use analyze_resume tool to get the user's resume content
+            2. Look at the jobs from the previous agent's output
+            3. For EACH job, provide:
+               - fit_score (0-100): Overall match quality
+               - matching_skills: Skills from resume that match job requirements
+               - missing_skills: Required skills the candidate lacks
+               - skill_gaps: Brief explanation of what needs improvement
+               - recommendation: Apply now / Learn X first / Not a good fit
             
-            Currently no tools available - coming soon:
-            - score_job_fit - Compare job requirements vs resume
-            - rank_jobs - Sort jobs by match quality
-            - identify_gaps - Find missing skills per job
+            4. Rank jobs by fit_score (highest first)
+            5. Present results clearly to user
+            6. Hand off to persist_scored_applications to save the scored jobs locally
             
-            For now, provide general guidance. Hand off to application_writer for cover letters.""",
+            Scoring criteria:
+            - 90-100: Excellent match, apply immediately
+            - 75-89: Strong match, good opportunity
+            - 60-74: Decent match, consider applying
+            - 40-59: Moderate gaps, apply if interested
+            - 0-39: Significant gaps, not recommended""",
+        )
+
+    def _get_persist_scored_applications_agent(self):
+        return Agent(
+            name="persist_scored_applications",
+            model=self.model,
+            tools=[file_write, current_time],
+            callback_handler=None,
+            system_prompt="""Extract scored job postings from the fit_scorer agent's output and save them locally.
+
+            CRITICAL: Look at the fit_scorer agent's output above to get the scored job data.
+            
+            Save to: ./resumes/scored/scored_jobs_{current_timestamp}.json
+            
+            JSON Format (must include ALL fields for each scored job):
+            ```json
+            [
+              {
+                "job_url": "https://...",
+                "job_title": "Senior Software Engineer",
+                "company_name": "Acme Corp",
+                "location": "San Francisco, CA",
+                "job_description": "Full description...",
+                "salary_range": "$150k-$190k",
+                "job_type": "Full-time",
+                "work_arrangement": "Hybrid",
+                "experience_level": "Senior",
+                "required_skills": ["Python", "AWS"],
+                "date_posted": "2024-03-01",
+                "fit_score": 85,
+                "matching_skills": ["Python", "AWS", "PostgreSQL"],
+                "missing_skills": ["Kubernetes", "GraphQL"],
+                "skill_gaps": "Need to learn Kubernetes for container orchestration",
+                "recommendation": "Strong match - apply ASAP",
+                "scored_at": "{current_timestamp}"
+              }
+            ]
+            ```
+            
+            Steps:
+            1. Use current_time to get timestamp
+            2. Extract all scored jobs from fit_scorer's output
+            3. Use file_write to save as JSON
+            4. Confirm: "Saved X scored jobs to ./resumes/scored/scored_jobs_{timestamp}.json"
+            
+            After saving, hand off to application_writer if user wants cover letters."""
         )
 
     def _get_app_writer_agent(self):
@@ -267,14 +364,15 @@ class JobSwarm:
         )
 
     def get_job_application_swarm(self):
-        # Create agents (only once each)
         resume_agent = self._get_resume_agent()
         job_finder = self._get_job_finder_agent()
+        persist_jobs_agent = self._get_persist_job_applications_agent()
         fit_scorer = self._get_fit_scorer_agent()
+        persist_scored_applications_agent = self._get_persist_scored_applications_agent()
         app_writer = self._get_app_writer_agent()
 
         return Swarm(
-            nodes=[resume_agent, job_finder, fit_scorer, app_writer],
+            nodes=[resume_agent, job_finder, persist_jobs_agent, fit_scorer, persist_scored_applications_agent, app_writer],
             entry_point=resume_agent,
             max_handoffs=20,
             max_iterations=20

@@ -57,20 +57,21 @@ async def test_job_finder_agent():
     print("="*60 + "\n")
 
     jobswarm = JobSwarm()
-    job_finder = jobswarm._get_job_finder_agent()
 
     # Test: Find jobs and potentially score them
-    result = await job_finder.invoke_async("Find me software engineer job opportunities. front end preferred but all works")
-    print(result.message)
+    # job_finder = jobswarm._get_job_finder_agent()
+    # result = await job_finder.invoke_async("Find me software engineer job opportunities. front end preferred but all works")
+    # print(result.message)
 
-    # swarm = jobswarm.get_job_application_swarm()
-    # print("\n" + "="*60)
-    # print("📊 Swarm Response:")
-    # print("="*60)
-    # print(f"Status: {result.status}")
-    # print(f"Execution time: {result.execution_time}s")
-    # print(f"Execution count: {result.execution_count}")
-    # print(f"\nFull result dict: {result.to_dict()}")
+    swarm = jobswarm.get_job_application_swarm()
+    result = await swarm.invoke_async("Using my resume, find me non-senior level SWE job postings. anywhere in the U.S. is okay. Just 5 postings.")
+    print("\n" + "="*60)
+    print("📊 Swarm Response:")
+    print("="*60)
+    print(f"Status: {result.status}")
+    print(f"Execution time: {result.execution_time}s")
+    print(f"Execution count: {result.execution_count}")
+    print(f"\nFull result dict: {result.to_dict()}")
 
 
 if __name__ == "__main__":

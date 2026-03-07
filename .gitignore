@@ -65,3 +65,6 @@ samconfig.toml
 
 # AIs
 .claude
+
+# Agents
+resumes/*
