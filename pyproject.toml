@@ -4,13 +4,13 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "httpx",
-    "strands-agents",
+    "strands-agents>=1.29",
     "python-dotenv",
-    "strands-agents-tools",
-    "strands-agents-builder",
+    "strands-agents-tools[local-chromium-browser]>=0.2.22",
+    "strands-agents-builder>=0.1.10",
     "playwright",
     "prompt-toolkit",
-    "python-jobspy>=1.1.82",
+    #    "python-jobspy>=1.1.82",
     "pymupdf>=1.27.1",
 ]
 

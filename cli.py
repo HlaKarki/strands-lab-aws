@@ -1,5 +1,6 @@
 import asyncio
 
+from services.job_swarm import JobSwarm
 from utils import make_user_id
 from prompt_toolkit.styles import Style
 from prompt_toolkit import PromptSession
@@ -7,12 +8,17 @@ from prompt_toolkit.completion import WordCompleter
 from services.fotmob import FotmobClient
 
 fb_client = FotmobClient()
+job_swarm = JobSwarm()
 
 COMMANDS = {
     "/football": {
         "description": "Football enthusiast and analyst agent",
         "agent": fb_client.get_football_agent()
     },
+    "/job_swarm": {
+        "description": "Job finder and assistant built as strands swarm agent",
+        "agent": job_swarm.get_job_application_swarm()
+    }
 }
 
 command_completer = WordCompleter(

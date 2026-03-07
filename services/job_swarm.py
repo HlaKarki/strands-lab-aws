@@ -2,9 +2,10 @@ import os
 import pymupdf
 from pathlib import Path
 from dotenv import load_dotenv
-from jobspy import scrape_jobs
 from strands import tool, Agent
 from strands.models import BedrockModel
+from strands.multiagent import Swarm
+from strands_tools import http_request, current_time
 
 load_dotenv()
 
@@ -15,6 +16,7 @@ class JobSwarm:
         self.scraper_result_age = 72
         self.resume_path = None
         self.resume_content: str | None = None
+        self.model = BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION"))
 
     @staticmethod
     def _clean_path(path: str) -> str:
@@ -119,18 +121,35 @@ class JobSwarm:
 
         return self.resume_content
 
-    def job_scraper(self, search_term="software engineer", location="Virginia, USA"):
-        jobs = scrape_jobs(
-            site_name=self.site_name,
-            search_term=search_term,
-            location=location,
-            results_wanted=self.scraper_result_limit,
-            hours_old=self.scraper_result_age,
-            verbose=0,
-            linkedin_fetch_description=True,
-        )
-
-        return jobs.to_dict("records")
+    # @tool
+    # def scrape_jobs(self, search_term="software engineer", location="Virginia, USA"):
+    #     """
+    #     Scrape job listings from LinkedIn.
+    #
+    #     Returns detailed job information including:
+    #     - Job title, company, location
+    #     - Full job description
+    #     - Salary information (when available)
+    #     - Date posted, job type (remote/onsite)
+    #     - Direct application links
+    #
+    #     Use this for bulk job searching across major job boards.
+    #
+    #     :param search_term: Job search query (e.g., "software engineer", "data scientist")
+    #     :param location: Geographic location (e.g., "Virginia, USA", "New York, NY")
+    #     :return: List of job dictionaries with full details
+    #     """
+    #     jobs = scrape_jobs(
+    #         site_name=self.site_name,
+    #         search_term=search_term,
+    #         location=location,
+    #         results_wanted=self.scraper_result_limit,
+    #         hours_old=self.scraper_result_age,
+    #         verbose=0,
+    #         linkedin_fetch_description=True,
+    #     )
+    #
+    #     return jobs.to_dict("records")
 
     def fit_scorer(self):
         pass
@@ -144,34 +163,119 @@ class JobSwarm:
     def interview_prepper(self):
         pass
 
-    def get_job_application_swarm(self):
+    def _get_resume_agent(self):
         return Agent(
-            model=BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION")),
+            name="resume_agent",
+            model=self.model,
             tools=[self.load_resume, self.analyze_resume],
             callback_handler=None,
-            system_prompt="""You are an intelligent job application assistant that helps users with their job search.
+            system_prompt="""You are a resume analysis specialist.
 
-Your capabilities:
-- Load and analyze resumes (PDF/TXT formats)
-- Extract skills, experience, and qualifications from resumes
-- (Coming soon: Job searching, fit scoring, cover letter writing, interview prep)
+            Your tools:
+            1. load_resume - Load user's resume from file (prompts for path if not provided)
+            2. analyze_resume - Extract and analyze resume content
+            
+            Workflow:
+            - If user wants to analyze resume, use load_resume first (if not already loaded)
+            - Then use analyze_resume to extract skills, experience, education
+            - After analyzing resume, hand off to job_finder if user wants to search for jobs
+            
+            IMPORTANT: Resume is required for job fit scoring. Make sure to load it before any job search operations."""
+        )
 
-CRITICAL WORKFLOW:
-1. Resume is REQUIRED for most operations
-2. If resume is not loaded and user asks for resume-related tasks:
-   - Call load_resume tool first (it will prompt user for file path)
-   - Then proceed with the requested analysis
-3. If load_resume tool is called without a file_path parameter, it will interactively ask the user to provide the path
+    def _get_job_finder_agent(self):
+        return Agent(
+            name="job_finder",
+            model=self.model,
+            tools=[http_request, current_time],
+            callback_handler=None,
+            system_prompt="""You find jobs using http_request to fetch from curated, high-quality job sources.
 
-ERROR HANDLING:
-- If analyze_resume raises "Resume not loaded" error, immediately call load_resume
-- Guide user through the process clearly
-- Confirm successful resume loading before proceeding
+            CURATED JOB SOURCES (use these):
+            
+            Startup/Early-Stage:
+            - https://www.workatastartup.com (YC companies)
+            - https://wellfound.com/jobs
+            - https://breakoutlist.com
+            - https://www.f6s.com/jobs
+            - https://www.rocketship.fm
+            
+            Developer/Engineering:
+            - https://news.ycombinator.com/submitted?id=whoishiring (HN Who's Hiring, monthly)
+            - https://cord.co
+            
+            Government-Funded/Research:
+            - https://seedfund.nsf.gov/awardees/history/ (NSF SBIR/STTR)
+            - https://www.sbir.gov/sbirsearch/award/all
+            
+            Industry-Specific:
+            - https://climatebase.org/jobs (climate tech)
+            - https://terra.do/climate-jobs
+            - https://aijobs.net (AI/ML)
+            
+            Regional Tech:
+            - https://builtin.com (multiple cities)
+            
+            Quality General:
+            - https://www.themuse.com/jobs
+            
+            Extract for each job: job_url, job_title, company_name, location, job_description, salary_range, job_type, work_arrangement, experience_level, required_skills, date_posted.
+            
+            Hand off to fit_scorer when done.""",
+        )
 
-COMMUNICATION STYLE:
-- Be concise and helpful
-- Clearly explain what you're doing and why
-- If asking for file path, mention user can drag & drop the file
-- Provide actionable insights from resume analysis
-"""
+    def _get_fit_scorer_agent(self):
+        return Agent(
+            name="fit_scorer",
+            model=self.model,
+            tools=[],
+            callback_handler=None,
+            system_prompt="""You are a job fit scoring specialist.
+
+            Your role:
+            - Score how well jobs match the user's resume (0-100 scale)
+            - Identify skill matches and gaps
+            - Rank jobs by fit score
+            
+            Currently no tools available - coming soon:
+            - score_job_fit - Compare job requirements vs resume
+            - rank_jobs - Sort jobs by match quality
+            - identify_gaps - Find missing skills per job
+            
+            For now, provide general guidance. Hand off to application_writer for cover letters.""",
+        )
+
+    def _get_app_writer_agent(self):
+        return Agent(
+            name="application_writer",
+            model=self.model,
+            tools=[],
+            callback_handler=None,
+            system_prompt="""You are a job application specialist.
+
+            Your role:
+            - Write tailored cover letters for specific jobs
+            - Generate interview preparation materials
+            - Create application strategies
+            
+            Currently no tools available - coming soon:
+            - write_cover_letter - Generate customized cover letters
+            - prep_interview - Create interview prep materials
+            - identify_talking_points - Extract key selling points from resume
+            
+            For now, provide general application advice based on the job and resume context.""",
+        )
+
+    def get_job_application_swarm(self):
+        # Create agents (only once each)
+        resume_agent = self._get_resume_agent()
+        job_finder = self._get_job_finder_agent()
+        fit_scorer = self._get_fit_scorer_agent()
+        app_writer = self._get_app_writer_agent()
+
+        return Swarm(
+            nodes=[resume_agent, job_finder, fit_scorer, app_writer],
+            entry_point=resume_agent,
+            max_handoffs=20,
+            max_iterations=20
         )
