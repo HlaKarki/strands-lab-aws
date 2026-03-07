@@ -6,6 +6,7 @@ from strands import tool, Agent
 from strands.models import BedrockModel
 from strands.multiagent import Swarm
 from strands_tools import http_request, current_time, file_write
+from prompt_toolkit.shortcuts import PromptSession
 
 load_dotenv()
 
@@ -17,6 +18,10 @@ class JobSwarm:
         self.resume_path = None
         self.resume_content: str | None = None
         self.model = BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION"))
+
+        # Shared state between agents
+        self.jobs_found: list = []
+        self.scored_jobs: list = []
 
     @staticmethod
     def _clean_path(path: str) -> str:
@@ -53,7 +58,7 @@ class JobSwarm:
             raise ValueError(f"Unsupported file format: {path.suffix}")
 
     @tool
-    def load_resume(self, file_path: str = None):
+    async def load_resume(self, file_path: str = None):
         """
         Load and parse the user's resume from a file.
 
@@ -75,10 +80,13 @@ class JobSwarm:
                          If not provided, will prompt user to paste/drag the file path.
         :return: Confirmation message with character count of loaded resume
         """
+        if self.resume_content:
+            return f"Resume loaded: ({len(self.resume_content)} chars). Use analyze_resume to view it."
+
         if not file_path:
             print("\n📄 Drag your resume file here (or paste the path): ")
-            file_path = input().strip()
-
+            session = PromptSession()
+            file_path = await session.prompt_async("> ")
         file_path = self._clean_path(file_path)
 
         if not os.path.isfile(file_path):
@@ -121,47 +129,62 @@ class JobSwarm:
 
         return self.resume_content
 
-    # @tool
-    # def scrape_jobs(self, search_term="software engineer", location="Virginia, USA"):
-    #     """
-    #     Scrape job listings from LinkedIn.
-    #
-    #     Returns detailed job information including:
-    #     - Job title, company, location
-    #     - Full job description
-    #     - Salary information (when available)
-    #     - Date posted, job type (remote/onsite)
-    #     - Direct application links
-    #
-    #     Use this for bulk job searching across major job boards.
-    #
-    #     :param search_term: Job search query (e.g., "software engineer", "data scientist")
-    #     :param location: Geographic location (e.g., "Virginia, USA", "New York, NY")
-    #     :return: List of job dictionaries with full details
-    #     """
-    #     jobs = scrape_jobs(
-    #         site_name=self.site_name,
-    #         search_term=search_term,
-    #         location=location,
-    #         results_wanted=self.scraper_result_limit,
-    #         hours_old=self.scraper_result_age,
-    #         verbose=0,
-    #         linkedin_fetch_description=True,
-    #     )
-    #
-    #     return jobs.to_dict("records")
+    @tool
+    def save_jobs_to_state(self, jobs: list):
+        """
+        Save found jobs to shared state so other agents can access them.
 
-    def fit_scorer(self):
-        pass
+        Use this tool after scraping/finding jobs to persist them in memory.
+        This allows persist_job_applications and fit_scorer agents to access
+        the jobs without parsing conversational text.
 
-    def gap_analyst(self):
-        pass
+        :param jobs: List of job dictionaries with fields: job_url, job_title,
+                     company_name, location, job_description, salary_range, etc.
+        :return: Confirmation message with job count
+        """
+        self.jobs_found = jobs
+        return f"✓ Saved {len(jobs)} jobs to shared state. Fields: {list(jobs[0].keys()) if jobs else 'none'}"
 
-    def cover_letter_writer(self):
-        pass
+    @tool
+    def get_jobs_from_state(self):
+        """
+        Retrieve jobs that were found by job_finder agent.
 
-    def interview_prepper(self):
-        pass
+        Use this tool to access the list of jobs without re-searching or parsing text.
+        Returns empty list if no jobs have been saved yet.
+
+        :return: List of job dictionaries
+        """
+        import json
+        if not self.jobs_found:
+            return "No jobs in state yet. job_finder needs to save jobs first."
+        return json.dumps(self.jobs_found, indent=2)
+
+    @tool
+    def save_scored_jobs_to_state(self, scored_jobs: list):
+        """
+        Save scored/analyzed jobs to shared state.
+
+        Use this tool after fit_scorer analyzes jobs against the resume.
+
+        :param scored_jobs: List of job dicts with added fields: fit_score,
+                            matching_skills, missing_skills, recommendation
+        :return: Confirmation message
+        """
+        self.scored_jobs = scored_jobs
+        return f"✓ Saved {len(scored_jobs)} scored jobs to shared state"
+
+    @tool
+    def get_scored_jobs_from_state(self):
+        """
+        Retrieve scored jobs from fit_scorer agent.
+
+        :return: List of scored job dictionaries
+        """
+        import json
+        if not self.scored_jobs:
+            return "No scored jobs yet. fit_scorer needs to analyze jobs first."
+        return json.dumps(self.scored_jobs, indent=2)
 
     def _get_resume_agent(self):
         return Agent(
@@ -180,104 +203,93 @@ class JobSwarm:
             - Then use analyze_resume to extract skills, experience, education
             - After analyzing resume, hand off to job_finder if user wants to search for jobs
             
-            IMPORTANT: Resume is required for job fit scoring. Make sure to load it before any job search operations."""
+            IMPORTANT: If user wants to SEARCH/FIND jobs: Immediately hand off to job_finder. 
+            NEVER ask about resume for job searches."""
         )
 
     def _get_job_finder_agent(self):
         return Agent(
             name="job_finder",
             model=self.model,
-            tools=[http_request, current_time],
+            tools=[http_request, current_time, self.save_jobs_to_state],
             callback_handler=None,
-            system_prompt="""You find jobs using http_request to fetch from curated, high-quality job sources.
+            system_prompt="""You are a job finder who ONLY searches the pre-approved curated job sources listed below.
 
-            CURATED JOB SOURCES (use these):
-            
+            CRITICAL RULES:
+            ❌ DO NOT search generic job boards (LinkedIn, Indeed, Glassdoor, Monster, etc.)
+            ❌ DO NOT search Google or other search engines for jobs
+            ❌ DO NOT make up or guess job board URLs
+            ✅ ONLY use the exact URLs listed below
+            ✅ Systematically check each relevant source from the list
+            ✅ If a URL doesn't work or returns no results, move to the next one
+
+            CURATED JOB SOURCES (ONLY use these - no exceptions):
+
             Startup/Early-Stage:
             - https://www.workatastartup.com (YC companies)
             - https://wellfound.com/jobs
             - https://breakoutlist.com
             - https://www.f6s.com/jobs
             - https://www.rocketship.fm
-            
+
             Developer/Engineering:
             - https://news.ycombinator.com/submitted?id=whoishiring (HN Who's Hiring, monthly)
             - https://cord.co
-            
+
             Government-Funded/Research:
             - https://seedfund.nsf.gov/awardees/history/ (NSF SBIR/STTR)
             - https://www.sbir.gov/sbirsearch/award/all
-            
+
             Industry-Specific:
             - https://climatebase.org/jobs (climate tech)
             - https://terra.do/climate-jobs
             - https://aijobs.net (AI/ML)
-            
-            Regional Tech:
-            - https://builtin.com (multiple cities)
-            
+
             Quality General:
             - https://www.themuse.com/jobs
-            
-            Extract for each job: job_url, job_title, company_name, location, job_description, salary_range, job_type, work_arrangement, experience_level, required_skills, date_posted.
 
-            After finding jobs, hand off to persist_job_applications to save them locally.""",
+            Search Strategy:
+            1. Based on user's criteria (level, location, industry), pick 3-5 most relevant sources from the list above
+            2. Use http_request to fetch job listings from each chosen source
+            3. Parse the response (JSON/HTML) to extract job data
+            4. For EACH job, create a dictionary with: job_url, job_title, company_name, location, job_description, salary_range, job_type, work_arrangement, experience_level, required_skills, date_posted
+            5. Collect all jobs into a list: [job1_dict, job2_dict, ...]
+            6. Use save_jobs_to_state tool to save the list
+            7. Aim for 5-15 total jobs that match user's criteria
+
+            After saving jobs to state, hand off to persist_job_applications to save them to file.""",
         )
 
     def _get_persist_job_applications_agent(self):
         return Agent(
             name="persist_job_applications",
             model=self.model,
-            tools=[file_write, current_time],
+            tools=[file_write, current_time, self.get_jobs_from_state],
             callback_handler=None,
-            system_prompt="""Extract job postings from the previous agent's output and save them locally.
+            system_prompt="""Save job postings to a local JSON file.
 
-            CRITICAL: Look at the job_finder agent's output above to get the job data.
-            
-            Save to: ./resumes/opportunities/jobs_{current_timestamp}.json
-            
-            JSON Format (must include ALL fields for each job):
-            ```json
-            [
-              {
-                "job_url": "https://...",
-                "job_title": "Senior Software Engineer",
-                "company_name": "Acme Corp",
-                "location": "San Francisco, CA",
-                "job_description": "Full description...",
-                "salary_range": "$150k-$190k",
-                "job_type": "Full-time",
-                "work_arrangement": "Hybrid",
-                "experience_level": "Senior",
-                "required_skills": ["Python", "AWS"],
-                "date_posted": "2024-03-01",
-                "application_deadline": null,
-                "benefits": ["equity", "health insurance"],
-                "scraped_at": "{current_timestamp}"
-              }
-            ]
-            ```
-            
             Steps:
-            1. Use current_time to get timestamp
-            2. Extract all jobs from previous output
-            3. Use file_write to save as JSON
-            4. Confirm: "Saved X jobs to ./resumes/opportunities/jobs_{timestamp}.json"
-            5. Hand off to fit_scorer to analyze and score the jobs against the user's resume"""
+            1. Use get_jobs_from_state to retrieve jobs from shared state
+            2. Use current_time to get timestamp for filename
+            3. Use file_write to save to: ./resumes/opportunities/YYYYMMDD/jobs_{time}.json (e.g. 20260307/18:03:26-05:00.json)
+            4. Confirm: "Saved X jobs to ./resumes/opportunities/YYYYMMDD/jobs_{time}.json" (e.g. 20260307/18:03:26-05:00.json)
+            5. Hand off to fit_scorer to analyze and score the jobs against the user's resume
+            
+            The jobs are already in JSON format from shared state - just save them directly."""
         )
 
     def _get_fit_scorer_agent(self):
         return Agent(
             name="fit_scorer",
             model=self.model,
-            tools=[self.analyze_resume],
+            tools=[self.analyze_resume, self.get_jobs_from_state, self.save_scored_jobs_to_state],
             callback_handler=None,
             system_prompt="""You are a job fit scoring specialist who analyzes how well jobs match the user's resume.
 
             Workflow:
             1. Use analyze_resume tool to get the user's resume content
-            2. Look at the jobs from the previous agent's output
-            3. For EACH job, provide:
+            2. Use get_jobs_from_state to retrieve the job list
+            3. For EACH job, analyze and add these fields:
                - fit_score (0-100): Overall match quality
                - matching_skills: Skills from resume that match job requirements
                - missing_skills: Required skills the candidate lacks
@@ -285,59 +297,35 @@ class JobSwarm:
                - recommendation: Apply now / Learn X first / Not a good fit
             
             4. Rank jobs by fit_score (highest first)
-            5. Present results clearly to user
-            6. Hand off to persist_scored_applications to save the scored jobs locally
+            5. Use save_scored_jobs_to_state to save the scored jobs list
+            6. Present results clearly to user
+            7. Hand off to persist_scored_applications to save to file
             
             Scoring criteria:
             - 90-100: Excellent match, apply immediately
             - 75-89: Strong match, good opportunity
             - 60-74: Decent match, consider applying
             - 40-59: Moderate gaps, apply if interested
-            - 0-39: Significant gaps, not recommended""",
+            - 0-39: Significant gaps, not recommended
+            
+            After saving jobs to state, hand off to persist_scored_applications to save them to file.""",
         )
 
     def _get_persist_scored_applications_agent(self):
         return Agent(
             name="persist_scored_applications",
             model=self.model,
-            tools=[file_write, current_time],
+            tools=[file_write, current_time, self.get_scored_jobs_from_state],
             callback_handler=None,
-            system_prompt="""Extract scored job postings from the fit_scorer agent's output and save them locally.
+            system_prompt="""Save scored job postings to a local JSON file.
 
-            CRITICAL: Look at the fit_scorer agent's output above to get the scored job data.
-            
-            Save to: ./resumes/scored/scored_jobs_{current_timestamp}.json
-            
-            JSON Format (must include ALL fields for each scored job):
-            ```json
-            [
-              {
-                "job_url": "https://...",
-                "job_title": "Senior Software Engineer",
-                "company_name": "Acme Corp",
-                "location": "San Francisco, CA",
-                "job_description": "Full description...",
-                "salary_range": "$150k-$190k",
-                "job_type": "Full-time",
-                "work_arrangement": "Hybrid",
-                "experience_level": "Senior",
-                "required_skills": ["Python", "AWS"],
-                "date_posted": "2024-03-01",
-                "fit_score": 85,
-                "matching_skills": ["Python", "AWS", "PostgreSQL"],
-                "missing_skills": ["Kubernetes", "GraphQL"],
-                "skill_gaps": "Need to learn Kubernetes for container orchestration",
-                "recommendation": "Strong match - apply ASAP",
-                "scored_at": "{current_timestamp}"
-              }
-            ]
-            ```
-            
             Steps:
-            1. Use current_time to get timestamp
-            2. Extract all scored jobs from fit_scorer's output
-            3. Use file_write to save as JSON
-            4. Confirm: "Saved X scored jobs to ./resumes/scored/scored_jobs_{timestamp}.json"
+            1. Use get_scored_jobs_from_state to retrieve scored jobs from shared state
+            2. Use current_time to get timestamp for filename
+            3. Use file_write to save to: ./resumes/scored/YYYYMMDD/scored_jobs_{time}.json (e.g. 20260307/18:03:26-05:00.json)
+            4. Confirm: "Saved X scored jobs to ./resumes/scored/YYYYMMDD/scored_jobs_{time}.json" (e.g. 20260307/18:03:26-05:00.json)
+            
+            The scored jobs are already in JSON format from shared state - just save them directly.
             
             After saving, hand off to application_writer if user wants cover letters."""
         )

@@ -1,4 +1,27 @@
 import asyncio
+import warnings
+import logging
+import sys
+
+# Suppress OpenTelemetry context warnings (harmless framework bugs)
+warnings.filterwarnings("ignore", message="Failed to detach context")
+logging.getLogger("opentelemetry").setLevel(logging.CRITICAL)
+logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
+
+# Monkey-patch OpenTelemetry to suppress context detach errors
+try:
+    from opentelemetry import context as otel_context
+    _original_detach = otel_context.detach
+
+    def _silent_detach(token):
+        try:
+            return _original_detach(token)
+        except ValueError:
+            pass  # Silently ignore context detach errors
+
+    otel_context.detach = _silent_detach
+except ImportError:
+    pass
 
 from services.job_swarm import JobSwarm
 from utils import make_user_id
@@ -38,6 +61,7 @@ style = Style.from_dict({
 seen_tools = set()
 
 def process_event(event, debug=False):
+    # Debug logging
     if debug:
         if event.get("init_event_loop", False):
             print("> Event loop initialized")
@@ -49,7 +73,30 @@ def process_event(event, debug=False):
             print("> Agent completed with result")
         elif event.get("force_stop", False):
             print(f"> Event loop force-stopped: {event.get('force_stop_reason', 'unknown reason')}")
+        elif event.get("type") == "multiagent_node_start":
+            print(f"\n> Agent '{event.get('node_id')}' starting...")
+        elif event.get("type") == "multiagent_handoff":
+            from_node = event.get("from_node_id", "unknown")
+            to_node = event.get("to_node_id", "unknown")
+            print(f"\n> Handoff: {from_node} → {to_node}")
 
+    # Swarm streaming (multiagent_node_stream contains inner events)
+    if event.get("type") == "multiagent_node_stream":
+        inner_event = event.get("event", {})
+
+        if "data" in inner_event:
+            print(inner_event["data"], end="", flush=True)
+
+        if "current_tool_use" in inner_event and inner_event["current_tool_use"].get("name"):
+            tool = inner_event["current_tool_use"]
+            tool_name = tool["name"]
+            tool_id = tool.get("toolUseId")
+            if tool_name and tool_id and tool_id not in seen_tools:
+                seen_tools.add(tool_id)
+                print(f"⚙︎ Using tool: {tool_name}")
+        return
+
+    # Single agent events
     if "current_tool_use" in event and event["current_tool_use"].get("name"):
         tool = event["current_tool_use"]
         tool_name = tool["name"]
@@ -60,6 +107,7 @@ def process_event(event, debug=False):
 
     if "data" in event:
         print(event["data"], end="", flush=True)
+
 
 async def main():
     user_id = make_user_id()
@@ -106,7 +154,7 @@ async def main():
             # Streaming
             print()
             async for event in agent.stream_async(message):
-                process_event(event)
+                process_event(event, debug=False)
             print()
 
         except KeyboardInterrupt:
