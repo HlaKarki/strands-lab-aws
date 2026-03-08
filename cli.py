@@ -47,52 +47,110 @@ style = Style.from_dict({
 seen_tools = set()
 
 def process_event(event, debug=False):
-    # Debug logging
-    if debug:
-        if event.get("init_event_loop", False):
-            print("> Event loop initialized")
-        elif event.get("start_event_loop", False):
-            print("> Event loop cycle starting")
-        elif "message" in event:
-            print(f"> New message created: {event['message']['role']}")
-        elif "result" in event:
-            print("> Agent completed with result")
-        elif event.get("force_stop", False):
-            print(f"> Event loop force-stopped: {event.get('force_stop_reason', 'unknown reason')}")
-        elif event.get("type") == "multiagent_node_start":
-            print(f"\n> Agent '{event.get('node_id')}' starting...")
-        elif event.get("type") == "multiagent_handoff":
-            from_node = event.get("from_node_id", "unknown")
-            to_node = event.get("to_node_id", "unknown")
-            print(f"\n> Handoff: {from_node} → {to_node}")
+    """
+    Process streaming events from Graph/Swarm execution.
+    Based on: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/streaming/
+    """
+    event_type = event.get("type")
 
-    # Swarm streaming (multiagent_node_stream contains inner events)
-    if event.get("type") == "multiagent_node_stream":
+    # === Multi-Agent Graph Events ===
+
+    # Node execution start
+    if event_type == "multiagent_node_start":
+        if debug:
+            print(f"\n🔄 Node '{event.get('node_id')}' starting...")
+        return
+
+    # Streaming events from within a node
+    if event_type == "multiagent_node_stream":
         inner_event = event.get("event", {})
 
+        # Handle nested multi-agent events (e.g., Swarm inside Graph)
+        if inner_event.get("type") == "multiagent_node_stream":
+            # Extract the deeply nested event
+            nested_event = inner_event.get("event", {})
+
+            # Stream text output from nested agent
+            if "data" in nested_event:
+                print(nested_event["data"], end="", flush=True)
+
+            # Track tool usage from nested agent
+            if "current_tool_use" in nested_event and nested_event["current_tool_use"].get("name"):
+                tool = nested_event["current_tool_use"]
+                tool_name = tool["name"]
+                tool_id = tool.get("toolUseId")
+                if tool_name and tool_id and tool_id not in seen_tools:
+                    seen_tools.add(tool_id)
+                    print(f"\n⚙︎ Using tool: {tool_name}")
+            return
+
+        # Handle direct agent events (single level)
         if "data" in inner_event:
             print(inner_event["data"], end="", flush=True)
 
+        # Track tool usage
         if "current_tool_use" in inner_event and inner_event["current_tool_use"].get("name"):
             tool = inner_event["current_tool_use"]
             tool_name = tool["name"]
             tool_id = tool.get("toolUseId")
             if tool_name and tool_id and tool_id not in seen_tools:
                 seen_tools.add(tool_id)
-                print(f"⚙︎ Using tool: {tool_name}")
+                print(f"\n⚙︎ Using tool: {tool_name}")
         return
 
-    # Single agent events
+    # Node execution completion
+    if event_type == "multiagent_node_stop":
+        if debug:
+            print(f"\n✅ Node '{event.get('node_id')}' completed")
+        return
+
+    # Handoff between agents (Swarm)
+    if event_type == "multiagent_handoff":
+        if debug:
+            from_node = event.get("from_node_id", "unknown")
+            to_node = event.get("to_node_id", "unknown")
+            print(f"\n🔀 Handoff: {from_node} → {to_node}")
+        return
+
+    # Final graph/swarm result - DO NOT PRINT (already streamed)
+    if event_type == "multiagent_result":
+        # Result already streamed via multiagent_node_stream events
+        return
+
+    # === Single Agent Events (fallback for non-graph agents) ===
+
+    if "init_event_loop" in event and debug:
+        print("> Event loop initialized")
+        return
+
+    if "start_event_loop" in event and debug:
+        print("> Event loop cycle starting")
+        return
+
+    if "message" in event and debug:
+        print(f"> New message created: {event['message']['role']}")
+        return
+
     if "current_tool_use" in event and event["current_tool_use"].get("name"):
         tool = event["current_tool_use"]
         tool_name = tool["name"]
         tool_id = tool.get("toolUseId")
         if tool_name and tool_id and tool_id not in seen_tools:
             seen_tools.add(tool_id)
-            print(f"⚙︎ Using tool: {tool_name}")
+            print(f"\n⚙︎ Using tool: {tool_name}")
+        return
 
     if "data" in event:
         print(event["data"], end="", flush=True)
+        return
+
+    if "result" in event and debug:
+        print("> Agent completed with result")
+        return
+
+    if "force_stop" in event and debug:
+        print(f"> Event loop force-stopped: {event.get('force_stop_reason', 'unknown')}")
+        return
 
 
 async def main():
@@ -122,12 +180,14 @@ async def main():
                 # save conversation/progress
                 break
 
-            # Reset thinking/final state for new message
+            # Reset tool tracking for new message
             seen_tools.clear()
 
-            # Streaming
+            # Stream events from graph execution
             async for event in graph.stream_async(user_input):
                 process_event(event, debug=False)
+
+            # Add newline after streaming completes
             print()
 
         except KeyboardInterrupt:

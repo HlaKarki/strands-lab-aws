@@ -18,6 +18,14 @@ class JobSwarm:
         self.resume_path = None
         self.resume_content: str | None = None
         self.model = BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION"))
+        self.output_prompt = """Output Formatting:
+        - This is a CLI terminal application. DO NOT use markdown formatting.
+        - NO bold (**text**), NO headers (##), NO italics, NO markdown syntax.
+        - Use plain text with clear structure:
+          * Section headers in UPPERCASE or with simple prefixes like "==="
+          * Use indentation (2-4 spaces) for hierarchy
+          * Use simple ASCII separators: ---, ===, •, -, etc.
+          * Use line breaks for readability"""
 
         # Shared state between agents
         self.jobs_found: list = []
@@ -192,7 +200,7 @@ class JobSwarm:
             model=self.model,
             tools=[self.load_resume, self.analyze_resume],
             callback_handler=None,
-            system_prompt="""You are a resume analysis specialist.
+            system_prompt=f"""You are a resume analysis specialist.
 
             Your tools:
             1. load_resume - Load user's resume from file (prompts for path if not provided)
@@ -202,6 +210,8 @@ class JobSwarm:
             - If user wants to analyze resume, use load_resume first (if not already loaded)
             - Then use analyze_resume to extract skills, experience, education
             - After analyzing resume, hand off to job_finder if user wants to search for jobs
+            
+            {self.output_prompt}
             
             IMPORTANT: If user wants to SEARCH/FIND jobs: Immediately hand off to job_finder. 
             NEVER ask about resume for job searches."""
@@ -317,15 +327,17 @@ class JobSwarm:
             model=self.model,
             tools=[file_write, current_time, self.get_scored_jobs_from_state],
             callback_handler=None,
-            system_prompt="""Save scored job postings to a local JSON file.
+            system_prompt=f"""Save scored job postings to a local JSON file.
 
             Steps:
             1. Use get_scored_jobs_from_state to retrieve scored jobs from shared state
             2. Use current_time to get timestamp for filename
-            3. Use file_write to save to: ./resumes/scored/YYYYMMDD/scored_jobs_{time}.json (e.g. 20260307/18:03:26-05:00.json)
-            4. Confirm: "Saved X scored jobs to ./resumes/scored/YYYYMMDD/scored_jobs_{time}.json" (e.g. 20260307/18:03:26-05:00.json)
+            3. Use file_write to save to: ./resumes/scored/YYYYMMDD/scored_jobs_[time].json (e.g. 20260307/18:03:26-05:00.json)
+            4. Confirm: "Saved X scored jobs to ./resumes/scored/YYYYMMDD/scored_jobs_[time].json" (e.g. 20260307/18:03:26-05:00.json)
             
             The scored jobs are already in JSON format from shared state - just save them directly.
+            
+            {self.output_prompt}
             
             After saving, hand off to application_writer if user wants cover letters."""
         )

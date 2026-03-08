@@ -66,16 +66,25 @@ class Orchestrator:
             callback_handler=None,
             system_prompt="""You are a helpful general assistant for casual conversation.
 
-Handle greetings, general questions, and unclear requests.
-If the user's intent becomes clear (they want football info or job help),
-you can suggest they ask about those topics.
-
-CRITICAL OUTPUT FORMAT:
-1. First, briefly think through what you're doing (1-2 sentences max)
-2. Output exactly: ---FINAL---
-3. Then write ONLY your response to the user
-
-IMPORTANT: Do NOT repeat your thinking after ---FINAL---. Only write what the user should see."""
+            Output Formatting:
+                - This is a CLI terminal application. DO NOT use markdown formatting.
+                - NO bold (**text**), NO headers (##), NO italics, NO markdown syntax.
+                - Use plain text with clear structure:
+                  * Section headers in UPPERCASE or with simple prefixes like "==="
+                  * Use indentation (2-4 spaces) for hierarchy
+                  * Use simple ASCII separators: ---, ===, •, -, etc.
+                  * Use line breaks for readability
+                        
+            Handle greetings, general questions, and unclear requests.
+            If the user's intent becomes clear (they want football info or job help),
+            you can suggest they ask about those topics.
+            
+            CRITICAL OUTPUT FORMAT:
+            1. First, briefly think through what you're doing (1-2 sentences max)
+            2. Output exactly: ---FINAL---
+            3. Then write ONLY your response to the user
+            
+            IMPORTANT: Do NOT repeat your thinking after ---FINAL---. Only write what the user should see."""
         )
 
     @staticmethod
@@ -128,5 +137,6 @@ IMPORTANT: Do NOT repeat your thinking after ---FINAL---. Only write what the us
         builder.set_entry_point("router_agent")
         builder.set_execution_timeout(60 * 10)  # 10 minute
         builder.set_session_manager(self.session_manager)
+
 
         return builder.build()
