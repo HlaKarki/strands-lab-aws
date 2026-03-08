@@ -17,6 +17,10 @@ class JobSwarm:
         self.scraper_result_age = 72
         self.resume_path = None
         self.resume_content: str | None = None
+        self.default_resume_paths = [
+            Path("/resumes/sample/hla.sample.pdf"),
+            Path(__file__).resolve().parent.parent / "resumes" / "sample" / "hla.sample.pdf",
+        ]
         self.model = BedrockModel(model_id=os.getenv("BEDROCK_MODEL_ID"), region_name=os.getenv("AWS_REGION"))
         self.output_prompt = """Output Formatting:
         - This is a CLI terminal application. DO NOT use markdown formatting.
@@ -71,6 +75,21 @@ class JobSwarm:
         else:
             raise ValueError(f"Unsupported file format: {path.suffix}")
 
+    def _find_default_resume_path(self) -> str | None:
+        """Return first existing default resume path, if available."""
+        for candidate in self.default_resume_paths:
+            if candidate.is_file():
+                return str(candidate)
+        return None
+
+    @staticmethod
+    def _display_path(path: str) -> str:
+        """Shorten long absolute paths for CLI display."""
+        marker = "/strands-lab-aws/"
+        if marker in path:
+            return path[path.index(marker):]
+        return path
+
     @tool
     async def load_resume(self, file_path: str = None):
         """
@@ -91,16 +110,35 @@ class JobSwarm:
         - Any other tool requires resume data but it's not loaded yet
 
         :param file_path: Optional absolute path to resume file (.pdf or .txt).
-                         If not provided, will prompt user to paste/drag the file path.
+                         If not provided, prompts user to paste/drag a path.
+                         When sample resume exists, pressing Enter uses it.
         :return: Confirmation message with character count of loaded resume
         """
         if self.resume_content:
             return f"Resume loaded: ({len(self.resume_content)} chars). Use analyze_resume to view it."
 
         if not file_path:
-            print("\n📄 Drag your resume file here (or paste the path): ")
-            session = PromptSession()
-            file_path = await session.prompt_async("> ")
+            default_resume_path = self._find_default_resume_path()
+            while True:
+                print("\n📄 Drag your resume file here (or paste the path).")
+                if default_resume_path:
+                    print(
+                        "   Press Enter to use sample: "
+                        f"{self._display_path(default_resume_path)}"
+                    )
+                session = PromptSession()
+                entered = await session.prompt_async("> ")
+                entered = entered.strip()
+
+                if entered:
+                    file_path = entered
+                    break
+
+                if default_resume_path:
+                    file_path = default_resume_path
+                    break
+
+                print("No sample resume found. Please paste a resume file path.")
         file_path = self._clean_path(file_path)
 
         if not os.path.isfile(file_path):
