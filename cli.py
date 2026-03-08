@@ -4,11 +4,13 @@ from prompt_toolkit import PromptSession
 from cli_config import (
     CLI_STYLE,
     EXIT_COMMANDS,
+    _print_startup_capabilities,
     build_command_completer,
     configure_runtime_logging,
-    get_commands, _print_startup_capabilities,
+    get_commands,
 )
 from cli_stream_renderer import StreamRenderer
+from env_bootstrap import ensure_env_ready
 from services.orchestrator import Orchestrator
 from utils import make_user_id
 
@@ -46,6 +48,8 @@ def _handle_local_command(user_input, commands):
 
 
 async def main():
+    ensure_env_ready()
+
     commands = get_commands()
     command_completer = build_command_completer(commands)
     renderer = StreamRenderer()
