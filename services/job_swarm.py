@@ -26,6 +26,12 @@ class JobSwarm:
           * Use indentation (2-4 spaces) for hierarchy
           * Use simple ASCII separators: ---, ===, •, -, etc.
           * Use line breaks for readability"""
+        self.final_output_contract = """CRITICAL OUTPUT FORMAT:
+        1. First, briefly explain what you're doing and call tools as needed (1-2 sentences max)
+        2. Output exactly: ---FINAL---
+        3. Then write ONLY the response meant for the user
+
+        IMPORTANT: Do NOT repeat your thinking after ---FINAL---. Everything after the marker goes directly to the user."""
 
         # Shared state between agents
         self.jobs_found: list = []
@@ -214,7 +220,9 @@ class JobSwarm:
             {self.output_prompt}
             
             IMPORTANT: If user wants to SEARCH/FIND jobs: Immediately hand off to job_finder. 
-            NEVER ask about resume for job searches."""
+            NEVER ask about resume for job searches.
+            
+            {self.final_output_contract}"""
         )
 
     def _get_job_finder_agent(self):
@@ -223,7 +231,7 @@ class JobSwarm:
             model=self.model,
             tools=[http_request, current_time, self.save_jobs_to_state],
             callback_handler=None,
-            system_prompt="""You are a job finder who ONLY searches the pre-approved curated job sources listed below.
+            system_prompt=f"""You are a job finder who ONLY searches the pre-approved curated job sources listed below.
 
             CRITICAL RULES:
             ❌ DO NOT search generic job boards (LinkedIn, Indeed, Glassdoor, Monster, etc.)
@@ -267,7 +275,9 @@ class JobSwarm:
             6. Use save_jobs_to_state tool to save the list
             7. Aim for 5-15 total jobs that match user's criteria
 
-            After saving jobs to state, hand off to persist_job_applications to save them to file.""",
+            After saving jobs to state, hand off to persist_job_applications to save them to file.
+            
+            {self.final_output_contract}""",
         )
 
     def _get_persist_job_applications_agent(self):
@@ -276,16 +286,18 @@ class JobSwarm:
             model=self.model,
             tools=[file_write, current_time, self.get_jobs_from_state],
             callback_handler=None,
-            system_prompt="""Save job postings to a local JSON file.
+            system_prompt=f"""Save job postings to a local JSON file.
 
             Steps:
             1. Use get_jobs_from_state to retrieve jobs from shared state
             2. Use current_time to get timestamp for filename
-            3. Use file_write to save to: ./resumes/opportunities/YYYYMMDD/jobs_{time}.json (e.g. 20260307/18:03:26-05:00.json)
-            4. Confirm: "Saved X jobs to ./resumes/opportunities/YYYYMMDD/jobs_{time}.json" (e.g. 20260307/18:03:26-05:00.json)
+            3. Use file_write to save to: ./resumes/opportunities/YYYYMMDD/jobs_[time].json (e.g. 20260307/18:03:26-05:00.json)
+            4. Confirm: "Saved X jobs to ./resumes/opportunities/YYYYMMDD/jobs_[time].json" (e.g. 20260307/18:03:26-05:00.json)
             5. Hand off to fit_scorer to analyze and score the jobs against the user's resume
             
-            The jobs are already in JSON format from shared state - just save them directly."""
+            The jobs are already in JSON format from shared state - just save them directly.
+            
+            {self.final_output_contract}"""
         )
 
     def _get_fit_scorer_agent(self):
@@ -294,7 +306,7 @@ class JobSwarm:
             model=self.model,
             tools=[self.analyze_resume, self.get_jobs_from_state, self.save_scored_jobs_to_state],
             callback_handler=None,
-            system_prompt="""You are a job fit scoring specialist who analyzes how well jobs match the user's resume.
+            system_prompt=f"""You are a job fit scoring specialist who analyzes how well jobs match the user's resume.
 
             Workflow:
             1. Use analyze_resume tool to get the user's resume content
@@ -318,7 +330,9 @@ class JobSwarm:
             - 40-59: Moderate gaps, apply if interested
             - 0-39: Significant gaps, not recommended
             
-            After saving jobs to state, hand off to persist_scored_applications to save them to file.""",
+            After saving jobs to state, hand off to persist_scored_applications to save them to file.
+            
+            {self.final_output_contract}""",
         )
 
     def _get_persist_scored_applications_agent(self):
@@ -339,7 +353,9 @@ class JobSwarm:
             
             {self.output_prompt}
             
-            After saving, hand off to application_writer if user wants cover letters."""
+            After saving, hand off to application_writer if user wants cover letters.
+            
+            {self.final_output_contract}"""
         )
 
     def _get_app_writer_agent(self):
@@ -348,7 +364,7 @@ class JobSwarm:
             model=self.model,
             tools=[],
             callback_handler=None,
-            system_prompt="""You are a job application specialist.
+            system_prompt=f"""You are a job application specialist.
 
             Your role:
             - Write tailored cover letters for specific jobs
@@ -360,7 +376,11 @@ class JobSwarm:
             - prep_interview - Create interview prep materials
             - identify_talking_points - Extract key selling points from resume
             
-            For now, provide general application advice based on the job and resume context.""",
+            For now, provide general application advice based on the job and resume context.
+            
+            {self.output_prompt}
+            
+            {self.final_output_contract}""",
         )
 
     def get_job_application_swarm(self):

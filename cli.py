@@ -45,6 +45,80 @@ style = Style.from_dict({
 })
 
 seen_tools = set()
+thinking_mode = True  # Track if we're in thinking or final output mode
+marker_buffer = ""
+
+# ANSI color codes
+GRAY = "\033[90m"
+RESET = "\033[0m"
+FINAL_MARKER = "---FINAL---"
+
+
+def _longest_marker_prefix(text: str) -> int:
+    """Return the longest suffix in text that matches a FINAL_MARKER prefix."""
+    max_prefix = min(len(text), len(FINAL_MARKER) - 1)
+    for size in range(max_prefix, 0, -1):
+        if text.endswith(FINAL_MARKER[:size]):
+            return size
+    return 0
+
+
+def _emit_text(text: str, grey: bool):
+    if not text:
+        return
+    if grey:
+        print(f"{GRAY}{text}{RESET}", end="", flush=True)
+    else:
+        print(text, end="", flush=True)
+
+
+def _stream_data(text: str):
+    """
+    Stream text with thinking/final styling.
+    - Grey while in thinking mode
+    - Switch to normal once FINAL_MARKER is seen
+    - Hide FINAL_MARKER from terminal output
+    - Handle marker split across chunks
+    """
+    global thinking_mode, marker_buffer
+    if not text:
+        return
+
+    combined = marker_buffer + text
+    marker_buffer = ""
+
+    while True:
+        marker_index = combined.find(FINAL_MARKER)
+        if marker_index == -1:
+            break
+
+        _emit_text(combined[:marker_index], grey=thinking_mode)
+        thinking_mode = False
+        combined = combined[marker_index + len(FINAL_MARKER):]
+
+    partial_marker_len = _longest_marker_prefix(combined)
+    if partial_marker_len:
+        visible_text = combined[:-partial_marker_len]
+        marker_buffer = combined[-partial_marker_len:]
+    else:
+        visible_text = combined
+
+    _emit_text(visible_text, grey=thinking_mode)
+
+
+def _flush_stream_buffer():
+    """Flush any remaining buffered text (e.g., incomplete FINAL_MARKER fragments)."""
+    global marker_buffer
+    if marker_buffer:
+        _emit_text(marker_buffer, grey=thinking_mode)
+        marker_buffer = ""
+
+
+def _print_tool_use(tool_name: str):
+    if thinking_mode:
+        print(f"\n{GRAY}⚙︎ Using tool: {tool_name}{RESET}")
+    else:
+        print(f"\n⚙︎ Using tool: {tool_name}")
 
 def process_event(event, debug=False):
     """
@@ -72,7 +146,7 @@ def process_event(event, debug=False):
 
             # Stream text output from nested agent
             if "data" in nested_event:
-                print(nested_event["data"], end="", flush=True)
+                _stream_data(nested_event["data"])
 
             # Track tool usage from nested agent
             if "current_tool_use" in nested_event and nested_event["current_tool_use"].get("name"):
@@ -81,12 +155,12 @@ def process_event(event, debug=False):
                 tool_id = tool.get("toolUseId")
                 if tool_name and tool_id and tool_id not in seen_tools:
                     seen_tools.add(tool_id)
-                    print(f"\n⚙︎ Using tool: {tool_name}")
+                    _print_tool_use(tool_name)
             return
 
         # Handle direct agent events (single level)
         if "data" in inner_event:
-            print(inner_event["data"], end="", flush=True)
+            _stream_data(inner_event["data"])
 
         # Track tool usage
         if "current_tool_use" in inner_event and inner_event["current_tool_use"].get("name"):
@@ -95,7 +169,7 @@ def process_event(event, debug=False):
             tool_id = tool.get("toolUseId")
             if tool_name and tool_id and tool_id not in seen_tools:
                 seen_tools.add(tool_id)
-                print(f"\n⚙︎ Using tool: {tool_name}")
+                _print_tool_use(tool_name)
         return
 
     # Node execution completion
@@ -137,11 +211,11 @@ def process_event(event, debug=False):
         tool_id = tool.get("toolUseId")
         if tool_name and tool_id and tool_id not in seen_tools:
             seen_tools.add(tool_id)
-            print(f"\n⚙︎ Using tool: {tool_name}")
+            _print_tool_use(tool_name)
         return
 
     if "data" in event:
-        print(event["data"], end="", flush=True)
+        _stream_data(event["data"])
         return
 
     if "result" in event and debug:
@@ -151,6 +225,7 @@ def process_event(event, debug=False):
     if "force_stop" in event and debug:
         print(f"> Event loop force-stopped: {event.get('force_stop_reason', 'unknown')}")
         return
+
 
 
 async def main():
@@ -180,14 +255,17 @@ async def main():
                 # save conversation/progress
                 break
 
-            # Reset tool tracking for new message
+            # Reset state for new message
             seen_tools.clear()
+            global thinking_mode, marker_buffer
+            thinking_mode = True
+            marker_buffer = ""
 
             # Stream events from graph execution
             async for event in graph.stream_async(user_input):
                 process_event(event, debug=False)
 
-            # Add newline after streaming completes
+            _flush_stream_buffer()
             print()
 
         except KeyboardInterrupt:
