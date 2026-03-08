@@ -2,7 +2,6 @@ import os
 from collections import defaultdict
 
 import httpx
-import logging
 from datetime import datetime
 from typing import List, Any
 from dotenv import load_dotenv
@@ -11,13 +10,6 @@ from strands.models import BedrockModel
 from scrapers.browser import intercept_api_response, extract_nextjs_data
 
 load_dotenv()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s: %(message)s'
-)
-
-logger = logging.getLogger("fotmob_client")
 
 class FotmobClient:
     def __init__(self):
@@ -318,7 +310,6 @@ class FotmobClient:
         get_traits: bool = False,
         get_next_match: bool = False,
     ) -> dict[str, Any]:
-        logger.info(f"Fetching player details for player_id: {player_id}")
         page_url = f"https://www.fotmob.com/players/{player_id}/"
 
         data = await extract_nextjs_data(
@@ -376,7 +367,6 @@ class FotmobClient:
         :return: dictionary of matches for that specific date
         """
         base_url = "https://www.fotmob.com/api/data/matches"
-        logger.info(f"Fetching matches for date: {date}")
 
         response = await self.client.get(
             f"{base_url}?date={date}&timezone=America/New_York&ccode3=USA",
@@ -399,7 +389,6 @@ class FotmobClient:
         :param dates: List of dates in YYYYMMDD format (e.g., [20260101, 20260102, 20260103])
         :return: List of matches grouped by date
         """
-        logger.info(f"Fetching matches for the dates: {dates}")
         all_matches = []
         for date in dates:
             result = await self.fetch_fixtures_by_date(date)  # type: ignore
@@ -424,7 +413,6 @@ class FotmobClient:
         :return: Dictionary with 'general' and 'header' objects containing comprehensive
                  match details including events, statistics, and team information
         """
-        logger.info(f"Fetching match details for match_id: {match_id}")
         match_url = f"https://www.fotmob.com/match/{match_id}"
 
         def response_filter(url: str) -> bool:
@@ -547,7 +535,6 @@ class FotmobClient:
         :param match_id: Unique integer ID of the upcoming or in-progress fixture
         :return: Dictionary with 'facts', and 'content' for comprehensive preview
         """
-        logger.info(f"Fetching pre-match details for fixture: {match_id}")
         match_url = f"https://www.fotmob.com/match/{match_id}"
 
         def response_filter(url: str) -> bool:
@@ -922,7 +909,6 @@ class FotmobClient:
         :param player_id: Unique integer ID of the player (use search_fotmob to find ID first)
         :return: Dictionary with player information, position, and primary team details
         """
-        logger.info(f"Fetching player profile for player_id: {player_id}")
         return await self.fetch_player_details(
             player_id=player_id,
             get_player_info=True,
@@ -952,7 +938,6 @@ class FotmobClient:
         :param player_id: Unique integer ID of the player (use search_fotmob to find ID first)
         :return: Dictionary with current season statistics in main league
         """
-        logger.info(f"Fetching player stats for player_id: {player_id}")
         return await self.fetch_player_details(
             player_id=player_id,
             get_league_stats=True,
@@ -980,7 +965,6 @@ class FotmobClient:
         :param player_id: Unique integer ID of the player (use search_fotmob to find ID first)
         :return: Dictionary with recent matches and next match information
         """
-        logger.info(f"Fetching player recent form for player_id: {player_id}")
         return await self.fetch_player_details(
             player_id=player_id,
             get_recent_matches=True,
@@ -1013,7 +997,6 @@ class FotmobClient:
         :param limit_seasons: Max number of season entries to return per career type (default 15)
         :return: Dictionary with career history and trophies (limited)
         """
-        logger.info(f"Fetching player career for player_id: {player_id}, type: {career_type}")
         data = await self.fetch_player_details(
             player_id=player_id,
             get_trophies=True,
@@ -1115,15 +1098,22 @@ class FotmobClient:
             callback_handler=None,
             system_prompt=f"""You are a football assistant and enthusiast.
 
-                Today's date: {datetime.now().strftime('%A, %B %d, %Y')} (YYYYMMDD: {datetime.now().strftime('%Y%m%d')})
+Today's date: {datetime.now().strftime('%A, %B %d, %Y')} (YYYYMMDD: {datetime.now().strftime('%Y%m%d')})
 
-                When users ask about fixtures pertaining to specific dates, calculate the YYYYMMDD format yourself and 
-                pass it to the tool.
-                
-                IMPORTANT: When users ask about "rated teams" or "best teams", use get_league_statistics (which has FotMob ratings).
-                Only use get_league_table for standings/table position queries.
+When users ask about fixtures pertaining to specific dates, calculate the YYYYMMDD format yourself and
+pass it to the tool.
 
-                {self.output_prompt}
+IMPORTANT: When users ask about "rated teams" or "best teams", use get_league_statistics (which has FotMob ratings).
+Only use get_league_table for standings/table position queries.
+
+CRITICAL OUTPUT FORMAT:
+1. First, briefly explain what you're doing and call your tools (1-2 sentences, this is thinking)
+2. After getting the data, output exactly: ---FINAL---
+3. Then write ONLY your formatted answer to the user
+
+IMPORTANT: Do NOT repeat your thinking after ---FINAL---. Everything after the marker goes directly to the user.
+
+{self.output_prompt}
                 """
         )
 

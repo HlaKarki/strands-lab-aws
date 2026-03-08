@@ -1,27 +1,13 @@
 import asyncio
 import warnings
 import logging
-import sys
+
+from services.orchestrator import Orchestrator
 
 # Suppress OpenTelemetry context warnings (harmless framework bugs)
 warnings.filterwarnings("ignore", message="Failed to detach context")
 logging.getLogger("opentelemetry").setLevel(logging.CRITICAL)
 logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
-
-# Monkey-patch OpenTelemetry to suppress context detach errors
-try:
-    from opentelemetry import context as otel_context
-    _original_detach = otel_context.detach
-
-    def _silent_detach(token):
-        try:
-            return _original_detach(token)
-        except ValueError:
-            pass  # Silently ignore context detach errors
-
-    otel_context.detach = _silent_detach
-except ImportError:
-    pass
 
 from services.job_swarm import JobSwarm
 from utils import make_user_id
@@ -111,6 +97,9 @@ def process_event(event, debug=False):
 
 async def main():
     user_id = make_user_id()
+    orchestrator = Orchestrator(user_id)
+    graph = orchestrator.get_graph()
+
     session = PromptSession(
         completer=command_completer,
         complete_while_typing=True,
@@ -133,27 +122,11 @@ async def main():
                 # save conversation/progress
                 break
 
-            parts = user_input.split(maxsplit=1)
-            command = parts[0]
-            message = parts[1] if len(parts) > 1 else ""
-
-            # chat
-            if not command.startswith("/"):
-                print(f"This is just a chat!")
-                continue
-
-            # command chat
-            if command not in COMMANDS:
-                print(f"Unknown command. Available commands: {', '.join(COMMANDS.keys())}")
-                continue
-
-            agent = COMMANDS[command]["agent"]
-            if agent is None:
-                print(f"Unknown agent for command '{command}'")
+            # Reset thinking/final state for new message
+            seen_tools.clear()
 
             # Streaming
-            print()
-            async for event in agent.stream_async(message):
+            async for event in graph.stream_async(user_input):
                 process_event(event, debug=False)
             print()
 

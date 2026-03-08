@@ -68,3 +68,4 @@ samconfig.toml
 
 # Agents
 resumes/*
+sessions/*
