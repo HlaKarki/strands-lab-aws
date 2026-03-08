@@ -4,6 +4,12 @@ CLI-based multi-agent assistant built with Strands on AWS Bedrock.
 
 ## What It Does
 
+
+
+https://github.com/user-attachments/assets/7325572a-cca2-471f-afa0-7823568b861e
+
+
+
 - Automatically routes user requests across:
   - `football_agent` (22 football tools)
   - `jobs_agent` (resume + job-finder swarm)
