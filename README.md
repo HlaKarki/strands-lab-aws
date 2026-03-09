@@ -22,6 +22,7 @@ CLI-based multi-agent assistant built with Strands on AWS Bedrock.
 
 ```bash
 uv sync
+uv run install-browsers  # Install Playwright Chromium for football agent scraping
 ```
 
 ## Run
